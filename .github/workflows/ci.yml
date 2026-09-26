@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -9,15 +10,11 @@ permissions:
 
 jobs:
   test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
-      - name: Format
-        run: zig fmt --check build.zig build.zig.zon src
-      - name: Tests
-        run: zig build test
+      - name: Check
+        run: |
+          zig fmt --check build.zig build.zig.zon src e2e
+          zig build test

@@ -90,7 +90,7 @@ Input TOML can be freed after loading. Resolution and hint lookup allocate no me
 ```sh
 mise install
 zig build test
-zig fmt --check build.zig build.zig.zon src
+zig fmt --check build.zig build.zig.zon src e2e
 ```
 
 ## License

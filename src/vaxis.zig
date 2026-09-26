@@ -26,3 +26,28 @@ fn Matcher(comptime NativeKey: type) type {
         }
     };
 }
+
+test "vaxisMatcher forwards named keys and every modifier" {
+    // Dropping a modifier could invoke an action for a different shortcut.
+    const testing = @import("std").testing;
+    const Key = @import("vaxis").Key;
+    const matcher = vaxisMatcher(Key{
+        .codepoint = Key.enter,
+        .mods = .{ .ctrl = true, .alt = true, .shift = true, .super = true, .meta = true, .hyper = true },
+    });
+    try testing.expect(matcher.matches(.{
+        .key = .{ .named = .enter },
+        .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true, .meta = true, .hyper = true },
+    }));
+    try testing.expect(!matcher.matches(.{ .key = .{ .named = .enter } }));
+}
+
+test "vaxisMatcher preserves native text and shifted codepoint matching" {
+    // Terminal protocols encode shifted characters differently.
+    const testing = @import("std").testing;
+    const Key = @import("vaxis").Key;
+    try testing.expect(vaxisMatcher(Key{ .codepoint = 'v', .mods = .{ .shift = true } }).matches(try KeySpec.parse("Shift+v")));
+    try testing.expect(vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } }).matches(try KeySpec.parse(":")));
+    try testing.expect(vaxisMatcher(Key{ .codepoint = 'v', .shifted_codepoint = 'V', .mods = .{ .shift = true } }).matches(try KeySpec.parse("V")));
+    try testing.expect(!vaxisMatcher(Key{ .codepoint = 'v' }).matches(try KeySpec.parse("Shift+v")));
+}
