@@ -4,14 +4,11 @@
     .fingerprint = 0xb4a8e13fc2f145b3,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
-        .z_toml = .{
-            .url = "https://github.com/eneskemalergin/z-toml/archive/3b71076a3988fe008faa09f80eec2b0f75412861.tar.gz",
-            .hash = "z_toml-0.4.0-QKon88s1CABQb3Y8VTvsF12o3fTbl063iokOBRG4BjyD",
-        },
         .vaxis = .{
             .url = "https://github.com/rockorager/libvaxis/archive/c060d314930c5552b99a89278a6a695baf0352da.tar.gz",
             .hash = "vaxis-0.6.0-BWNV_LC4CwBka_bJk8SOXqzCM-nyQH00jzdL0kUhGwRE",
+            .lazy = true,
         },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "src", "e2e", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md" },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "e2e", "LICENSE", "README.md" },
 }

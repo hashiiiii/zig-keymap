@@ -1,0 +1,8 @@
+.{
+    .name = .keymap_consumer,
+    .version = "0.0.0",
+    .fingerprint = 0x177ab0bdf2ba1acf,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{ .zig_keymap = .{ .path = "../.." } },
+    .paths = .{ "build.zig", "build.zig.zon", "consumer.zig" },
+}
