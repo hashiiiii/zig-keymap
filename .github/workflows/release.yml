@@ -52,7 +52,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add build.zig.zon .bumpversion.toml
+          git add build.zig.zon README.md .bumpversion.toml
           git commit -m "chore: release v$VERSION"
       - name: Tag and push
         run: |

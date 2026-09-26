@@ -4,16 +4,21 @@ Configurable single-key bindings for Zig terminal applications. Requires Zig 0.1
 
 ## Installation
 
-```sh
-zig fetch --save=zig_keymap https://github.com/hashiiiii/zig-keymap/archive/refs/heads/main.tar.gz
-```
+1. Add `zig_keymap` to your application's `build.zig.zon`:
 
-Import the module in `build.zig`:
+   ```sh
+   zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#v0.1.0"
+   ```
 
-```zig
-const keymap = b.dependency("zig_keymap", .{ .target = target, .optimize = optimize }).module("keymap");
-app.root_module.addImport("keymap", keymap);
-```
+2. In your `build.zig`, add the `keymap` module to your application:
+
+   ```zig
+   const keymap = b.dependency("zig_keymap", .{
+       .target = target,
+       .optimize = optimize,
+   });
+   app.root_module.addImport("keymap", keymap.module("keymap"));
+   ```
 
 The module has no external dependencies. libvaxis and its dependencies are used only by this repository's tests.
 
@@ -90,20 +95,15 @@ Input JSON can be freed after loading. Resolution and hint lookup allocate no me
 
 ```sh
 mise install
-zig build test
+zig fmt build.zig build.zig.zon src e2e
+zig build test -Doptimize=Debug
 zig build test -Doptimize=ReleaseSafe
-zig fmt --check build.zig build.zig.zon src e2e
 ```
-
-CI also builds a minimal consumer with an empty external package directory to prevent dependencies from becoming required by consumers.
 
 ## Releasing
 
-Run the [Release workflow](https://github.com/hashiiiii/zig-keymap/actions/workflows/release.yml) from `main` with a version such as `0.1.0`.
-It uses `bump-my-version` to update `build.zig.zon` and `.bumpversion.toml`, pushes the version commit and `vX.Y.Z` tag, and creates a GitHub release with generated notes.
-The workflow requires CI to pass for the selected commit. It needs no compiler or additional secrets.
-CI for a new version commit starts separately, so release does not wait for another test run.
+Run the [Release workflow](https://github.com/hashiiiii/zig-keymap/actions/workflows/release.yml) from `main` with a version such as `X.Y.Z`.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+[Apache-2.0](LICENSE)

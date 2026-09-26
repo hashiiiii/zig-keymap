@@ -20,7 +20,7 @@ jobs:
       - name: Check
         run: |
           zig fmt --check build.zig build.zig.zon src e2e
-          zig build test
+          zig build test -Doptimize=Debug
           zig build test -Doptimize=ReleaseSafe
       - name: Check consumer dependencies
         run: |
