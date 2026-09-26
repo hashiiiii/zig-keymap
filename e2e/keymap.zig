@@ -15,7 +15,7 @@ test "partial configuration resolves native keys and keeps modal actions exclusi
             .{ .context = .tree, .action = .move_up, .keys = &.{"Up"} },
             .{ .context = .dialog, .action = .cancel, .keys = &.{ "q", "Escape" } },
         },
-        .active_contexts = &.{ &.{ .global, .tree }, &.{.dialog} },
+        .context_groups = &.{ &.{ .global, .tree }, &.{.dialog} },
     },
         \\{"tree": {"move_down": ["Ctrl+n"]}}
     )).bindings;
@@ -38,7 +38,7 @@ test "empty overrides disable every alias and clear the hint" {
     const Map = keymap.Keymap(enum { tree }, Action);
     var map = (try Map.load(testing.allocator, .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } }},
-        .active_contexts = &.{},
+        .context_groups = &.{},
     },
         \\{"tree": {"move_down": []}}
     )).bindings;
@@ -59,7 +59,7 @@ test "native matching overlaps resolve in active context order" {
             .{ .context = .global, .action = .quit, .keys = &.{":"} },
             .{ .context = .tree, .action = .move_down, .keys = &.{"Shift+;"} },
         },
-        .active_contexts = &.{&.{ .global, .tree }},
+        .context_groups = &.{&.{ .global, .tree }},
     }, null)).bindings;
     defer map.deinit();
 
@@ -76,7 +76,7 @@ test "native matching overlaps resolve in default declaration order" {
             .{ .context = .tree, .action = .move_up, .keys = &.{"Shift+;"} },
             .{ .context = .tree, .action = .move_down, .keys = &.{":"} },
         },
-        .active_contexts = &.{},
+        .context_groups = &.{},
     }, null)).bindings;
     defer map.deinit();
 

@@ -1,5 +1,6 @@
 const KeySpec = @import("key.zig").KeySpec;
 
+/// Adapts a libvaxis key event for `Keymap.resolve`, preserving native key matching.
 pub fn vaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {
     return .{ .key = key };
 }

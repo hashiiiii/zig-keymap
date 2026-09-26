@@ -26,7 +26,7 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
     return struct {
         const Self = @This();
         pub const Default = struct { context: Context, action: Action, keys: []const []const u8 };
-        pub const Specification = struct { defaults: []const Default, active_contexts: []const []const Context };
+        pub const Specification = struct { defaults: []const Default, context_groups: []const []const Context };
         pub const LoadResult = union(enum) { bindings: Self, invalid: Diagnostic };
         const Entry = struct { context: Context, action: Action, keys: []const KeySpec, hint: []const u8 };
 
@@ -100,7 +100,7 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
             }
             for (entries, 0..) |a, index| {
                 for (entries[index + 1 ..]) |b| {
-                    if (!canOverlap(specification.active_contexts, a.context, b.context)) continue;
+                    if (!canOverlap(specification.context_groups, a.context, b.context)) continue;
                     for (a.keys) |ak| {
                         for (b.keys) |bk| {
                             if (ak.equivalent(bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
@@ -126,8 +126,11 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
             return false;
         }
 
-        pub fn resolve(self: *const Self, contexts: []const Context, matcher: anytype) ?Action {
-            for (contexts) |context| {
+        /// Returns the first matching action, or `null` when no binding matches.
+        /// The order of `active_contexts`, then default declaration order, decides which action wins when several bindings match.
+        /// Matchers must provide `matches(KeySpec) bool`; use `vaxisMatcher` for libvaxis keys.
+        pub fn resolve(self: *const Self, active_contexts: []const Context, matcher: anytype) ?Action {
+            for (active_contexts) |context| {
                 for (self.entries) |entry| {
                     if (entry.context != context) continue;
                     for (entry.keys) |key| {
@@ -138,6 +141,8 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
             return null;
         }
 
+        /// Returns configured keys, or an empty slice for an unbound action.
+        /// The keymap owns this slice; it remains valid until `deinit()` and must not be freed separately.
         pub fn keys(self: *const Self, context: Context, action: Action) []const KeySpec {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.keys;
@@ -145,6 +150,8 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
             return &.{};
         }
 
+        /// Returns the first configured key as a label, or an empty string for an unbound action.
+        /// The keymap owns this label; it remains valid until `deinit()` and must not be freed separately.
         pub fn hint(self: *const Self, context: Context, action: Action) []const u8 {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.hint;
@@ -164,7 +171,7 @@ test "load uses default aliases and the first key as the hint" {
     const Map = Keymap(enum { tree }, enum { move_down, move_up });
     var map = (try Map.load(testing.allocator, .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } }},
-        .active_contexts = &.{},
+        .context_groups = &.{},
     }, null)).bindings;
     defer map.deinit();
 
@@ -181,7 +188,7 @@ test "load rejects unknown contexts and actions" {
     const Map = Keymap(enum { tree, dialog }, enum { move_down, cancel });
     const specification: Map.Specification = .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
-        .active_contexts = &.{},
+        .context_groups = &.{},
     };
     const context = (try Map.load(testing.allocator, specification,
         \\{"unknown": {"move_down": []}}
@@ -204,7 +211,7 @@ test "load requires context objects and arrays of strings" {
     const Map = Keymap(enum { tree }, enum { move_down });
     const specification: Map.Specification = .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
-        .active_contexts = &.{},
+        .context_groups = &.{},
     };
     try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "null")).invalid.kind);
     try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "[]")).invalid.kind);
@@ -224,11 +231,11 @@ test "load rejects invalid default and override keys" {
     const Map = Keymap(enum { tree }, enum { move_down });
     try testing.expectEqual(Diagnostic.Kind.invalid_key, (try Map.load(testing.allocator, .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"Unknown+j"} }},
-        .active_contexts = &.{},
+        .context_groups = &.{},
     }, null)).invalid.kind);
     try testing.expectEqual(Diagnostic.Kind.invalid_key, (try Map.load(testing.allocator, .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
-        .active_contexts = &.{},
+        .context_groups = &.{},
     },
         \\{"tree": {"move_down": ["Ctrl+Ctrl+x"]}}
     )).invalid.kind);
@@ -239,7 +246,7 @@ test "load reports JSON syntax locations and rejects duplicate fields" {
     const Map = Keymap(enum { tree }, enum { move_down });
     const specification: Map.Specification = .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
-        .active_contexts = &.{},
+        .context_groups = &.{},
     };
     const syntax = (try Map.load(testing.allocator, specification,
         \\{
@@ -266,7 +273,7 @@ test "load rejects duplicate default actions" {
             .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
             .{ .context = .tree, .action = .move_down, .keys = &.{"Down"} },
         },
-        .active_contexts = &.{},
+        .context_groups = &.{},
     }, null)).invalid.kind);
 }
 
@@ -278,13 +285,13 @@ test "load rejects collisions within a context" {
             .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
             .{ .context = .tree, .action = .move_up, .keys = &.{"k"} },
         },
-        .active_contexts = &.{},
+        .context_groups = &.{},
     },
         \\{"tree": {"move_up": ["j"]}}
     )).invalid.kind);
 }
 
-test "load rejects collisions across active contexts" {
+test "load rejects collisions across context groups" {
     // Global shortcuts must not shadow navigation in a declared active group.
     const Map = Keymap(enum { global, tree }, enum { quit, move_down });
     const collision = (try Map.load(testing.allocator, .{
@@ -292,7 +299,7 @@ test "load rejects collisions across active contexts" {
             .{ .context = .global, .action = .quit, .keys = &.{"q"} },
             .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
         },
-        .active_contexts = &.{&.{ .global, .tree }},
+        .context_groups = &.{&.{ .global, .tree }},
     },
         \\{"global": {"quit": ["j"]}}
     )).invalid;
@@ -308,7 +315,7 @@ test "load rejects equivalent ASCII Shift bindings" {
             .{ .context = .tree, .action = .move_down, .keys = &.{"Shift+j"} },
             .{ .context = .tree, .action = .move_up, .keys = &.{"J"} },
         },
-        .active_contexts = &.{},
+        .context_groups = &.{},
     }, null)).invalid.kind);
 }
 
@@ -322,7 +329,7 @@ test "load owns bindings after the input is freed" {
         defer testing.allocator.free(text);
         break :blk (try Map.load(testing.allocator, .{
             .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
-            .active_contexts = &.{},
+            .context_groups = &.{},
         }, text)).bindings;
     };
     defer map.deinit();

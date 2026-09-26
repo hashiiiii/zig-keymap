@@ -6,7 +6,7 @@ test "consumer loads JSON without external dependencies" {
     const Map = keymap.Keymap(enum { global }, enum { quit });
     var bindings = (try Map.load(std.testing.allocator, .{
         .defaults = &.{.{ .context = .global, .action = .quit, .keys = &.{"q"} }},
-        .active_contexts = &.{},
+        .context_groups = &.{},
     },
         \\{"global": {"quit": ["Ctrl+q"]}}
     )).bindings;

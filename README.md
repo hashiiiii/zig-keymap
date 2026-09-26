@@ -1,6 +1,14 @@
 # zig-keymap
 
-Configurable single-key bindings for Zig terminal applications. Requires Zig 0.16.0.
+A library for keyboard shortcuts in Zig terminal applications. Define default shortcuts in Zig and let users change them with JSON settings.
+
+- Define shortcuts for global actions, views, and modal dialogs.
+- Assign several keys to each action. Users can change or disable its shortcuts while keeping defaults for other actions.
+- Check settings for invalid keys and conflicts between contexts that can be active together.
+- Get shortcut labels for help text.
+- Match [libvaxis](https://github.com/rockorager/libvaxis) key events with the included `vaxisMatcher` helper.
+
+Requires Zig `0.16.0`. The library has no external dependencies.
 
 ## Installation
 
@@ -20,8 +28,6 @@ Configurable single-key bindings for Zig terminal applications. Requires Zig 0.1
    app.root_module.addImport("keymap", keymap.module("keymap"));
    ```
 
-The module has no external dependencies. libvaxis and its dependencies are used only by this repository's tests.
-
 ## Usage
 
 Declare application contexts, actions, defaults, and the contexts that can be active together:
@@ -29,17 +35,17 @@ Declare application contexts, actions, defaults, and the contexts that can be ac
 ```zig
 const std = @import("std");
 const keymap = @import("keymap");
-const Context = enum { global, tree, dialog };
+const Context = enum { global, list, dialog };
 const Action = enum { quit, move_down, cancel };
 const Bindings = keymap.Keymap(Context, Action);
 
 const specification: Bindings.Specification = .{
     .defaults = &.{
         .{ .context = .global, .action = .quit, .keys = &.{"q"} },
-        .{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } },
+        .{ .context = .list, .action = .move_down, .keys = &.{ "Down", "j" } },
         .{ .context = .dialog, .action = .cancel, .keys = &.{"Escape"} },
     },
-    .active_contexts = &.{ &.{ .global, .tree }, &.{.dialog} },
+    .context_groups = &.{ &.{ .global, .list }, &.{.dialog} },
 };
 
 const loaded = try Bindings.load(allocator, specification, optional_json);
@@ -52,57 +58,54 @@ var bindings = switch (loaded) {
 };
 defer bindings.deinit();
 
-// Modal input must not invoke global actions.
-const action = bindings.resolve(&.{ .global, .tree }, keymap.vaxisMatcher(key));
+const action = bindings.resolve(&.{ .global, .list }, keymap.vaxisMatcher(key));
 const label = bindings.hint(.global, .quit);
 ```
 
-The libvaxis adapter calls the consumer's `Key.matches`. Custom adapters provide `matches(KeySpec) bool`.
-The application handles returned actions and loads its configuration file.
+`context_groups` lists contexts that can be used together. `load` checks each group for key conflicts.
+Pass the active contexts to `resolve`. It returns an action, or `null` if no key matches.
 
 ### Configuration
 
 ```json
 {
   "global": { "quit": ["Ctrl+q"] },
-  "tree": { "move_down": ["Down", "n"] },
+  "list": { "move_down": ["Down", "n"] },
   "dialog": { "cancel": [] }
 }
 ```
 
-Configuration uses strict JSON parsed with `std.json.Value`. Comments and trailing commas are not accepted.
-Convert existing TOML configuration to JSON before loading it. Pass `null` to `load` to use all defaults.
-Unspecified actions retain their defaults. Arrays replace all keys for an action. `[]` disables the action.
-Unknown names, invalid values, duplicate JSON fields, and conflicting bindings return a diagnostic.
-Exact collisions and equivalent ASCII Shift spellings are rejected across declared active context groups.
-Other terminal matching overlaps resolve in active context order, then default declaration order.
+Your application reads the JSON file. Pass its text to `load`.
+Pass `null` to use the keys in `specification.defaults`.
+
+Actions missing from the JSON keep their default keys.
+A key array replaces the default keys for that action. `[]` removes all keys for that action.
+
+If the settings have errors, `load` returns a diagnostic.
+Errors include unknown names, invalid values or keys, duplicate fields, and key conflicts.
 
 ### Keys
 
-Use one Unicode character or a named key, with optional `Ctrl+`, `Alt+`, `Shift+`, `Super+`, `Meta+`, or `Hyper+` prefixes.
-Modifier and named-key names are case insensitive. Character case is preserved.
-Examples: `j`, `Ctrl+Enter`, `Shift+v`, `あ`, `+`, `Ctrl++`.
+Use a character or a key name.
 
-Named keys: `Up`, `Down`, `Left`, `Right`, `Enter`, `Escape`, `Tab`, `Backspace`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, `Insert`, `Space`, `F1`–`F12`.
+| Type | Keys |
+| --- | --- |
+| Character | One Unicode character, such as `j`, `あ`, or `+` |
+| Arrows | `Up`, `Down`, `Left`, `Right` |
+| Navigation | `Home`, `End`, `PageUp`, `PageDown` |
+| Editing | `Backspace`, `Delete`, `Insert` |
+| Other keys | `Enter`, `Escape`, `Tab`, `Space` |
+| Function keys | `F1`–`F12` |
 
-### Ownership
+Add one or more modifiers with `+`: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.
 
-`load` owns the effective bindings. `keys` and `hint` return slices valid until `deinit`.
-Diagnostics store their messages by value; syntax errors include `line` and `column`.
-Input JSON can be freed after loading. Resolution and hint lookup allocate no memory.
+| Format | Examples |
+| --- | --- |
+| One key | `j`, `あ`, `Enter`, `+` |
+| Modifier + key | `Ctrl+Enter`, `Shift+v`, `Ctrl++` |
+| Several modifiers + key | `Ctrl+Shift+Enter` |
 
-## Development
-
-```sh
-mise install
-zig fmt build.zig build.zig.zon src e2e
-zig build test -Doptimize=Debug
-zig build test -Doptimize=ReleaseSafe
-```
-
-## Releasing
-
-Run the [Release workflow](https://github.com/hashiiiii/zig-keymap/actions/workflows/release.yml) from `main` with a version such as `X.Y.Z`.
+Key names and modifier names ignore case. Character keys keep their case.
 
 ## License
 
