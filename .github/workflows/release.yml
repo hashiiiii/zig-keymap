@@ -21,7 +21,10 @@ jobs:
       VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: Validate input and bump version
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: pipx:bump-my-version
+      - name: Validate release
         id: version
         uses: actions/github-script@v9
         with:
@@ -40,20 +43,16 @@ jobs:
             });
             if (data.workflow_runs.length === 0) throw new Error('CI must pass for this commit before releasing');
 
-            const fs = require('node:fs/promises');
-            const path = 'build.zig.zon';
-            const content = await fs.readFile(path, 'utf8');
-            const field = /^(\s*\.version = ")[^"]+(",)$/m;
-            if (!field.test(content)) throw new Error('Package version was not found');
-            const updated = content.replace(field, (_, prefix, suffix) => `${prefix}${version}${suffix}`);
-            await fs.writeFile(path, updated);
-            core.setOutput('changed', updated !== content);
+            const { stdout } = await exec.getExecOutput('bump-my-version', ['show', 'current_version']);
+            core.setOutput('changed', version !== stdout.trim());
+      - name: Bump version
+        run: bump-my-version bump --new-version "$VERSION"
       - name: Commit version bump
         if: steps.version.outputs.changed == 'true'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add build.zig.zon
+          git add build.zig.zon .bumpversion.toml
           git commit -m "chore: release v$VERSION"
       - name: Tag and push
         run: |

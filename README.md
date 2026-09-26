@@ -100,7 +100,7 @@ CI also builds a minimal consumer with an empty external package directory to pr
 ## Releasing
 
 Run the [Release workflow](https://github.com/hashiiiii/zig-keymap/actions/workflows/release.yml) from `main` with a version such as `0.1.0`.
-It updates `build.zig.zon`, pushes the version commit and `vX.Y.Z` tag, and creates a GitHub release with generated notes.
+It uses `bump-my-version` to update `build.zig.zon` and `.bumpversion.toml`, pushes the version commit and `vX.Y.Z` tag, and creates a GitHub release with generated notes.
 The workflow requires CI to pass for the selected commit. It needs no compiler or additional secrets.
 CI for a new version commit starts separately, so release does not wait for another test run.
 
