@@ -18,3 +18,10 @@ jobs:
         run: |
           zig fmt --check build.zig build.zig.zon src e2e
           zig build test
+          zig build test -Doptimize=ReleaseSafe
+      - name: Check consumer dependencies
+        run: |
+          # An empty system package directory catches dependencies even if CI has cached them.
+          empty_packages="$(mktemp -d)"
+          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages"
+          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages" -Doptimize=ReleaseSafe

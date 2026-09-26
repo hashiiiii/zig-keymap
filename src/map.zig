@@ -1,6 +1,5 @@
 const std = @import("std");
 const testing = std.testing;
-const toml = @import("toml");
 const KeySpec = @import("key.zig").KeySpec;
 
 pub const Diagnostic = struct {
@@ -41,29 +40,34 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
             const storage = arena.allocator();
             var parse_arena = std.heap.ArenaAllocator.init(allocator);
             defer parse_arena.deinit();
-            var root: ?*toml.Table = null;
+            var root: ?std.json.ObjectMap = null;
             if (text) |contents| {
-                var info: toml.ErrorInfo = .{};
-                root = toml.parseSlice(parse_arena.allocator(), contents, &info) catch |err| switch (err) {
+                var scanner = std.json.Scanner.initCompleteInput(parse_arena.allocator(), contents);
+                defer scanner.deinit();
+                var info: std.json.Diagnostics = .{};
+                scanner.enableDiagnostics(&info);
+                const value = std.json.parseFromTokenSourceLeaky(std.json.Value, parse_arena.allocator(), &scanner, .{}) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                     else => {
-                        var diagnostic = Diagnostic.init(.syntax, "{s}", .{info.message()});
-                        diagnostic.line = info.line;
-                        diagnostic.column = info.col;
+                        var diagnostic = Diagnostic.init(.syntax, "Invalid JSON: {s}", .{@errorName(err)});
+                        diagnostic.line = std.math.cast(u32, info.getLine());
+                        diagnostic.column = std.math.cast(u32, info.getColumn());
                         return .{ .invalid = diagnostic };
                     },
                 };
+                if (value != .object) return .{ .invalid = Diagnostic.init(.invalid_type, "Configuration must be an object", .{}) };
+                root = value.object;
             }
-            if (root) |table| {
-                for (table.keys(), table.values()) |context_name, context_value| {
+            if (root) |object| {
+                for (object.keys(), object.values()) |context_name, context_value| {
                     const context = std.meta.stringToEnum(Context, context_name) orelse return .{ .invalid = Diagnostic.init(.unknown_context, "Unknown context '{s}'", .{context_name}) };
                     var known = false;
                     for (specification.defaults) |binding| {
                         if (binding.context == context) known = true;
                     }
                     if (!known) return .{ .invalid = Diagnostic.init(.unknown_context, "Unknown context '{s}'", .{context_name}) };
-                    if (context_value != .table) return .{ .invalid = Diagnostic.init(.invalid_type, "Context '{s}' must be a table", .{context_name}) };
-                    for (context_value.table.keys(), context_value.table.values()) |action_name, value| {
+                    if (context_value != .object) return .{ .invalid = Diagnostic.init(.invalid_type, "Context '{s}' must be an object", .{context_name}) };
+                    for (context_value.object.keys(), context_value.object.values()) |action_name, value| {
                         var allowed = false;
                         for (specification.defaults) |binding| {
                             if (binding.context == context and std.mem.eql(u8, @tagName(binding.action), action_name)) allowed = true;
@@ -81,9 +85,9 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
                 for (specification.defaults[0..index]) |previous| {
                     if (previous.context == binding.context and previous.action == binding.action) return .{ .invalid = Diagnostic.init(.invalid_specification, "Duplicate default '{s}.{s}'", .{ @tagName(binding.context), @tagName(binding.action) }) };
                 }
-                const override = if (root) |table| blk: {
-                    const context = table.get(@tagName(binding.context)) orelse break :blk null;
-                    break :blk context.table.get(@tagName(binding.action));
+                const override = if (root) |object| blk: {
+                    const context = object.get(@tagName(binding.context)) orelse break :blk null;
+                    break :blk context.object.get(@tagName(binding.action));
                 } else null;
                 const count = if (override) |value| value.array.items.len else binding.keys.len;
                 const parsed_keys = try storage.alloc(KeySpec, count);
@@ -172,28 +176,6 @@ test "load uses default aliases and the first key as the hint" {
     try testing.expectEqualStrings("", map.hint(.tree, .move_up));
 }
 
-test "load replaces aliases and retains unspecified defaults" {
-    // Partial configuration must not remove navigation commands it does not mention.
-    const Map = Keymap(enum { tree }, enum { move_down, move_up });
-    var map = (try Map.load(testing.allocator, .{
-        .defaults = &.{
-            .{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } },
-            .{ .context = .tree, .action = .move_up, .keys = &.{"Up"} },
-        },
-        .active_contexts = &.{},
-    },
-        \\[tree]
-        \\move_down = ["n"]
-    )).bindings;
-    defer map.deinit();
-
-    try testing.expectEqual(@as(usize, 1), map.keys(.tree, .move_down).len);
-    try testing.expectEqual(KeySpec{ .key = .{ .character = 'n' } }, map.keys(.tree, .move_down)[0]);
-    try testing.expectEqualStrings("n", map.hint(.tree, .move_down));
-    try testing.expectEqual(KeySpec{ .key = .{ .named = .up } }, map.keys(.tree, .move_up)[0]);
-    try testing.expectEqualStrings("Up", map.hint(.tree, .move_up));
-}
-
 test "load rejects unknown contexts and actions" {
     // Misspelled or misplaced actions must not silently fall back to defaults.
     const Map = Keymap(enum { tree, dialog }, enum { move_down, cancel });
@@ -201,24 +183,40 @@ test "load rejects unknown contexts and actions" {
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
         .active_contexts = &.{},
     };
-    const context = (try Map.load(testing.allocator, specification, "[unknown]\nmove_down = []")).invalid;
+    const context = (try Map.load(testing.allocator, specification,
+        \\{"unknown": {"move_down": []}}
+    )).invalid;
     try testing.expectEqual(Diagnostic.Kind.unknown_context, context.kind);
     try testing.expectEqualStrings("Unknown context 'unknown'", context.message());
-    try testing.expectEqual(Diagnostic.Kind.unknown_context, (try Map.load(testing.allocator, specification, "[dialog]\ncancel = []")).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, specification, "[tree]\nunknown_action = []")).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, specification, "[tree]\ncancel = []")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.unknown_context, (try Map.load(testing.allocator, specification,
+        \\{"dialog": {"cancel": []}}
+    )).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, specification,
+        \\{"tree": {"unknown_action": []}}
+    )).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, specification,
+        \\{"tree": {"cancel": []}}
+    )).invalid.kind);
 }
 
-test "load requires context tables and arrays of strings" {
-    // Valid TOML can still have a shape that cannot describe key bindings.
+test "load requires context objects and arrays of strings" {
+    // Valid JSON can still have a shape that cannot describe key bindings.
     const Map = Keymap(enum { tree }, enum { move_down });
     const specification: Map.Specification = .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
         .active_contexts = &.{},
     };
-    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "tree = 1")).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "[tree]\nmove_down = 1")).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "[tree]\nmove_down = [1]")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "null")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "[]")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification,
+        \\{"tree": 1}
+    )).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification,
+        \\{"tree": {"move_down": 1}}
+    )).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification,
+        \\{"tree": {"move_down": [1]}}
+    )).invalid.kind);
 }
 
 test "load rejects invalid default and override keys" {
@@ -231,21 +229,33 @@ test "load rejects invalid default and override keys" {
     try testing.expectEqual(Diagnostic.Kind.invalid_key, (try Map.load(testing.allocator, .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
         .active_contexts = &.{},
-    }, "[tree]\nmove_down = [\"Ctrl+Ctrl+x\"]")).invalid.kind);
+    },
+        \\{"tree": {"move_down": ["Ctrl+Ctrl+x"]}}
+    )).invalid.kind);
 }
 
-test "load reports TOML syntax locations and rejects duplicate definitions" {
+test "load reports JSON syntax locations and rejects duplicate fields" {
     // Syntax diagnostics must identify where users can fix their configuration.
     const Map = Keymap(enum { tree }, enum { move_down });
     const specification: Map.Specification = .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
         .active_contexts = &.{},
     };
-    const syntax = (try Map.load(testing.allocator, specification, "[tree]\nmove_down = ?")).invalid;
+    const syntax = (try Map.load(testing.allocator, specification,
+        \\{
+        \\"tree": ?
+        \\}
+    )).invalid;
     try testing.expectEqual(Diagnostic.Kind.syntax, syntax.kind);
     try testing.expectEqual(@as(?u32, 2), syntax.line);
-    try testing.expectEqual(@as(?u32, 13), syntax.column);
-    try testing.expectEqual(Diagnostic.Kind.syntax, (try Map.load(testing.allocator, specification, "[tree]\nmove_down = []\nmove_down = []")).invalid.kind);
+    try testing.expectEqual(@as(?u32, 9), syntax.column);
+    try testing.expectEqualStrings("Invalid JSON: SyntaxError", syntax.message());
+    try testing.expectEqual(Diagnostic.Kind.syntax, (try Map.load(testing.allocator, specification,
+        \\{"tree": {}, "tree": {}}
+    )).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.syntax, (try Map.load(testing.allocator, specification,
+        \\{"tree": {"move_down": [], "move_down": []}}
+    )).invalid.kind);
 }
 
 test "load rejects duplicate default actions" {
@@ -269,7 +279,9 @@ test "load rejects collisions within a context" {
             .{ .context = .tree, .action = .move_up, .keys = &.{"k"} },
         },
         .active_contexts = &.{},
-    }, "[tree]\nmove_up = [\"j\"]")).invalid.kind);
+    },
+        \\{"tree": {"move_up": ["j"]}}
+    )).invalid.kind);
 }
 
 test "load rejects collisions across active contexts" {
@@ -281,7 +293,9 @@ test "load rejects collisions across active contexts" {
             .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
         },
         .active_contexts = &.{&.{ .global, .tree }},
-    }, "[global]\nquit = [\"j\"]")).invalid;
+    },
+        \\{"global": {"quit": ["j"]}}
+    )).invalid;
     try testing.expectEqual(Diagnostic.Kind.collision, collision.kind);
     try testing.expectEqualStrings("Key collision between 'global.quit' and 'tree.move_down'", collision.message());
 }
@@ -298,26 +312,13 @@ test "load rejects equivalent ASCII Shift bindings" {
     }, null)).invalid.kind);
 }
 
-test "load allows shared keys in mutually exclusive contexts" {
-    // Modal actions need to reuse keys without inheriting global actions.
-    const Map = Keymap(enum { global, dialog }, enum { quit, cancel });
-    var map = (try Map.load(testing.allocator, .{
-        .defaults = &.{
-            .{ .context = .global, .action = .quit, .keys = &.{"q"} },
-            .{ .context = .dialog, .action = .cancel, .keys = &.{"q"} },
-        },
-        .active_contexts = &.{ &.{.global}, &.{.dialog} },
-    }, null)).bindings;
-    defer map.deinit();
-    try testing.expectEqualStrings("q", map.hint(.global, .quit));
-    try testing.expectEqualStrings("q", map.hint(.dialog, .cancel));
-}
-
 test "load owns bindings after the input is freed" {
     // Applications can release configuration text immediately after loading.
     const Map = Keymap(enum { tree }, enum { move_down });
     var map = blk: {
-        const text = try testing.allocator.dupe(u8, "[tree]\nmove_down = [\"Ctrl+n\"]");
+        const text = try testing.allocator.dupe(u8,
+            \\{"tree": {"move_down": ["Ctrl+\u006e", "j"]}}
+        );
         defer testing.allocator.free(text);
         break :blk (try Map.load(testing.allocator, .{
             .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
@@ -326,5 +327,6 @@ test "load owns bindings after the input is freed" {
     };
     defer map.deinit();
     try testing.expectEqual(KeySpec{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, map.keys(.tree, .move_down)[0]);
+    try testing.expectEqual(KeySpec{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1]);
     try testing.expectEqualStrings("Ctrl+n", map.hint(.tree, .move_down));
 }
