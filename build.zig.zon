@@ -13,5 +13,5 @@
             .hash = "vaxis-0.6.0-BWNV_LC4CwBka_bJk8SOXqzCM-nyQH00jzdL0kUhGwRE",
         },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "src", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md" },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "e2e", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md" },
 }

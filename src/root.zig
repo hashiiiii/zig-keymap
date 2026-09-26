@@ -5,3 +5,7 @@ pub const KeySpec = @import("key.zig").KeySpec;
 pub const Diagnostic = @import("map.zig").Diagnostic;
 pub const Keymap = @import("map.zig").Keymap;
 pub const vaxisMatcher = @import("vaxis.zig").vaxisMatcher;
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 const toml = @import("toml");
 const KeySpec = @import("key.zig").KeySpec;
 
@@ -30,18 +31,13 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
         pub const LoadResult = union(enum) { bindings: Self, invalid: Diagnostic };
         const Entry = struct { context: Context, action: Action, keys: []const KeySpec, hint: []const u8 };
 
-        allocator: std.mem.Allocator,
-        arena: *std.heap.ArenaAllocator,
+        arena: std.heap.ArenaAllocator,
         entries: []Entry,
 
         pub fn load(allocator: std.mem.Allocator, specification: Specification, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
-            const arena = try allocator.create(std.heap.ArenaAllocator);
-            arena.* = std.heap.ArenaAllocator.init(allocator);
+            var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
-            defer if (!retained) {
-                arena.deinit();
-                allocator.destroy(arena);
-            };
+            defer if (!retained) arena.deinit();
             const storage = arena.allocator();
             var parse_arena = std.heap.ArenaAllocator.init(allocator);
             defer parse_arena.deinit();
@@ -109,7 +105,7 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
                 }
             }
             retained = true;
-            return .{ .bindings = .{ .allocator = allocator, .arena = arena, .entries = entries } };
+            return .{ .bindings = .{ .arena = arena, .entries = entries } };
         }
 
         fn canOverlap(groups: []const []const Context, a: Context, b: Context) bool {
@@ -154,8 +150,181 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
 
         pub fn deinit(self: *Self) void {
             self.arena.deinit();
-            self.allocator.destroy(self.arena);
             self.* = undefined;
         }
     };
+}
+
+test "load uses default aliases and the first key as the hint" {
+    // Applications need every default alias, even though hints show only the first key.
+    const Map = Keymap(enum { tree }, enum { move_down, move_up });
+    var map = (try Map.load(testing.allocator, .{
+        .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } }},
+        .active_contexts = &.{},
+    }, null)).bindings;
+    defer map.deinit();
+
+    try testing.expectEqual(@as(usize, 2), map.keys(.tree, .move_down).len);
+    try testing.expectEqual(KeySpec{ .key = .{ .named = .down } }, map.keys(.tree, .move_down)[0]);
+    try testing.expectEqual(KeySpec{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1]);
+    try testing.expectEqualStrings("Down", map.hint(.tree, .move_down));
+    try testing.expectEqual(@as(usize, 0), map.keys(.tree, .move_up).len);
+    try testing.expectEqualStrings("", map.hint(.tree, .move_up));
+}
+
+test "load replaces aliases and retains unspecified defaults" {
+    // Partial configuration must not remove navigation commands it does not mention.
+    const Map = Keymap(enum { tree }, enum { move_down, move_up });
+    var map = (try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } },
+            .{ .context = .tree, .action = .move_up, .keys = &.{"Up"} },
+        },
+        .active_contexts = &.{},
+    },
+        \\[tree]
+        \\move_down = ["n"]
+    )).bindings;
+    defer map.deinit();
+
+    try testing.expectEqual(@as(usize, 1), map.keys(.tree, .move_down).len);
+    try testing.expectEqual(KeySpec{ .key = .{ .character = 'n' } }, map.keys(.tree, .move_down)[0]);
+    try testing.expectEqualStrings("n", map.hint(.tree, .move_down));
+    try testing.expectEqual(KeySpec{ .key = .{ .named = .up } }, map.keys(.tree, .move_up)[0]);
+    try testing.expectEqualStrings("Up", map.hint(.tree, .move_up));
+}
+
+test "load rejects unknown contexts and actions" {
+    // Misspelled or misplaced actions must not silently fall back to defaults.
+    const Map = Keymap(enum { tree, dialog }, enum { move_down, cancel });
+    const specification: Map.Specification = .{
+        .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
+        .active_contexts = &.{},
+    };
+    const context = (try Map.load(testing.allocator, specification, "[unknown]\nmove_down = []")).invalid;
+    try testing.expectEqual(Diagnostic.Kind.unknown_context, context.kind);
+    try testing.expectEqualStrings("Unknown context 'unknown'", context.message());
+    try testing.expectEqual(Diagnostic.Kind.unknown_context, (try Map.load(testing.allocator, specification, "[dialog]\ncancel = []")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, specification, "[tree]\nunknown_action = []")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, specification, "[tree]\ncancel = []")).invalid.kind);
+}
+
+test "load requires context tables and arrays of strings" {
+    // Valid TOML can still have a shape that cannot describe key bindings.
+    const Map = Keymap(enum { tree }, enum { move_down });
+    const specification: Map.Specification = .{
+        .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
+        .active_contexts = &.{},
+    };
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "tree = 1")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "[tree]\nmove_down = 1")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "[tree]\nmove_down = [1]")).invalid.kind);
+}
+
+test "load rejects invalid default and override keys" {
+    // Both application defaults and user overrides must pass key validation.
+    const Map = Keymap(enum { tree }, enum { move_down });
+    try testing.expectEqual(Diagnostic.Kind.invalid_key, (try Map.load(testing.allocator, .{
+        .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"Unknown+j"} }},
+        .active_contexts = &.{},
+    }, null)).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_key, (try Map.load(testing.allocator, .{
+        .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
+        .active_contexts = &.{},
+    }, "[tree]\nmove_down = [\"Ctrl+Ctrl+x\"]")).invalid.kind);
+}
+
+test "load reports TOML syntax locations and rejects duplicate definitions" {
+    // Syntax diagnostics must identify where users can fix their configuration.
+    const Map = Keymap(enum { tree }, enum { move_down });
+    const specification: Map.Specification = .{
+        .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
+        .active_contexts = &.{},
+    };
+    const syntax = (try Map.load(testing.allocator, specification, "[tree]\nmove_down = ?")).invalid;
+    try testing.expectEqual(Diagnostic.Kind.syntax, syntax.kind);
+    try testing.expectEqual(@as(?u32, 2), syntax.line);
+    try testing.expectEqual(@as(?u32, 13), syntax.column);
+    try testing.expectEqual(Diagnostic.Kind.syntax, (try Map.load(testing.allocator, specification, "[tree]\nmove_down = []\nmove_down = []")).invalid.kind);
+}
+
+test "load rejects duplicate default actions" {
+    // Duplicate actions make override and hint selection ambiguous.
+    const Map = Keymap(enum { tree }, enum { move_down });
+    try testing.expectEqual(Diagnostic.Kind.invalid_specification, (try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
+            .{ .context = .tree, .action = .move_down, .keys = &.{"Down"} },
+        },
+        .active_contexts = &.{},
+    }, null)).invalid.kind);
+}
+
+test "load rejects collisions within a context" {
+    // One key must not select two actions in the same context.
+    const Map = Keymap(enum { tree }, enum { move_down, move_up });
+    try testing.expectEqual(Diagnostic.Kind.collision, (try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
+            .{ .context = .tree, .action = .move_up, .keys = &.{"k"} },
+        },
+        .active_contexts = &.{},
+    }, "[tree]\nmove_up = [\"j\"]")).invalid.kind);
+}
+
+test "load rejects collisions across active contexts" {
+    // Global shortcuts must not shadow navigation in a declared active group.
+    const Map = Keymap(enum { global, tree }, enum { quit, move_down });
+    const collision = (try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .global, .action = .quit, .keys = &.{"q"} },
+            .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
+        },
+        .active_contexts = &.{&.{ .global, .tree }},
+    }, "[global]\nquit = [\"j\"]")).invalid;
+    try testing.expectEqual(Diagnostic.Kind.collision, collision.kind);
+    try testing.expectEqualStrings("Key collision between 'global.quit' and 'tree.move_down'", collision.message());
+}
+
+test "load rejects equivalent ASCII Shift bindings" {
+    // Alternate spellings must not evade collision validation.
+    const Map = Keymap(enum { tree }, enum { move_down, move_up });
+    try testing.expectEqual(Diagnostic.Kind.collision, (try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .tree, .action = .move_down, .keys = &.{"Shift+j"} },
+            .{ .context = .tree, .action = .move_up, .keys = &.{"J"} },
+        },
+        .active_contexts = &.{},
+    }, null)).invalid.kind);
+}
+
+test "load allows shared keys in mutually exclusive contexts" {
+    // Modal actions need to reuse keys without inheriting global actions.
+    const Map = Keymap(enum { global, dialog }, enum { quit, cancel });
+    var map = (try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .global, .action = .quit, .keys = &.{"q"} },
+            .{ .context = .dialog, .action = .cancel, .keys = &.{"q"} },
+        },
+        .active_contexts = &.{ &.{.global}, &.{.dialog} },
+    }, null)).bindings;
+    defer map.deinit();
+    try testing.expectEqualStrings("q", map.hint(.global, .quit));
+    try testing.expectEqualStrings("q", map.hint(.dialog, .cancel));
+}
+
+test "load owns bindings after the input is freed" {
+    // Applications can release configuration text immediately after loading.
+    const Map = Keymap(enum { tree }, enum { move_down });
+    var map = blk: {
+        const text = try testing.allocator.dupe(u8, "[tree]\nmove_down = [\"Ctrl+n\"]");
+        defer testing.allocator.free(text);
+        break :blk (try Map.load(testing.allocator, .{
+            .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
+            .active_contexts = &.{},
+        }, text)).bindings;
+    };
+    defer map.deinit();
+    try testing.expectEqual(KeySpec{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, map.keys(.tree, .move_down)[0]);
+    try testing.expectEqualStrings("Ctrl+n", map.hint(.tree, .move_down));
 }

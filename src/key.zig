@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 
 pub const NamedKey = enum {
     up,
@@ -146,3 +147,58 @@ pub const KeySpec = struct {
         return result;
     }
 };
+
+test "parse preserves character case and accepts case-insensitive names" {
+    // Character case changes bindings, while modifier and named-key spelling does not.
+    try testing.expectEqual(KeySpec{ .key = .{ .character = 'あ' }, .modifiers = .{ .ctrl = true } }, try KeySpec.parse("cTrL+あ"));
+    try testing.expectEqual(KeySpec{ .key = .{ .character = 'J' } }, try KeySpec.parse("J"));
+    try testing.expectEqual(KeySpec{ .key = .{ .named = .page_down } }, try KeySpec.parse("pagedown"));
+    try testing.expectEqual(KeySpec{
+        .key = .{ .named = .enter },
+        .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true, .meta = true, .hyper = true },
+    }, try KeySpec.parse("Hyper+Meta+Super+Shift+Alt+Ctrl+Enter"));
+}
+
+test "parse accepts a literal plus with or without modifiers" {
+    // Plus is both a key and the modifier separator.
+    try testing.expectEqual(KeySpec{ .key = .{ .character = '+' } }, try KeySpec.parse("+"));
+    try testing.expectEqual(KeySpec{ .key = .{ .character = '+' }, .modifiers = .{ .ctrl = true } }, try KeySpec.parse("Ctrl++"));
+}
+
+test "parse rejects malformed key expressions" {
+    // A binding must identify one codepoint and each modifier at most once.
+    try testing.expectError(error.InvalidKey, KeySpec.parse(""));
+    try testing.expectError(error.InvalidKey, KeySpec.parse("Ctrl+"));
+    try testing.expectError(error.InvalidKey, KeySpec.parse("Ctrl+Ctrl+x"));
+    try testing.expectError(error.InvalidKey, KeySpec.parse("Unknown+x"));
+    try testing.expectError(error.InvalidKey, KeySpec.parse("word"));
+    try testing.expectError(error.InvalidKey, KeySpec.parse("\xff"));
+    try testing.expectError(error.InvalidKey, KeySpec.parse("a\xcc\x81"));
+}
+
+test "format produces canonical hints for named and character keys" {
+    // Hints must show the effective binding in a stable, readable order.
+    var buffer: [96]u8 = undefined;
+    try testing.expectEqualStrings("Ctrl+Alt+Shift+Super+Meta+Hyper+Enter", (KeySpec{
+        .key = .{ .named = .enter },
+        .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true, .meta = true, .hyper = true },
+    }).format(&buffer));
+    try testing.expectEqualStrings("Ctrl+あ", (KeySpec{ .key = .{ .character = 'あ' }, .modifiers = .{ .ctrl = true } }).format(&buffer));
+    try testing.expectEqualStrings("Ctrl++", (KeySpec{ .key = .{ .character = '+' }, .modifiers = .{ .ctrl = true } }).format(&buffer));
+}
+
+test "equivalent detects ASCII Shift aliases without merging other modifiers" {
+    // Equivalent spellings must collide, but distinct shortcuts must remain available.
+    try testing.expect((try KeySpec.parse("J")).equivalent(try KeySpec.parse("Shift+j")));
+    try testing.expect(!(try KeySpec.parse("J")).equivalent(try KeySpec.parse("j")));
+    try testing.expect(!(try KeySpec.parse("Ctrl+j")).equivalent(try KeySpec.parse("j")));
+}
+
+test "equivalent detects named keys and their control character aliases" {
+    // Literal characters must not bypass collision checks for named keys.
+    try testing.expect((try KeySpec.parse("Space")).equivalent(try KeySpec.parse(" ")));
+    try testing.expect((try KeySpec.parse("Tab")).equivalent(try KeySpec.parse("\t")));
+    try testing.expect((try KeySpec.parse("Enter")).equivalent(try KeySpec.parse("\r")));
+    try testing.expect((try KeySpec.parse("Escape")).equivalent(try KeySpec.parse("\x1b")));
+    try testing.expect((try KeySpec.parse("Backspace")).equivalent(try KeySpec.parse("\x7f")));
+}
