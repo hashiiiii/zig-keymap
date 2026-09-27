@@ -256,19 +256,6 @@ Native matches that depend on the received event use active context order, then 
 An earlier pending candidate takes priority over a later completed candidate when native matches overlap.
 Free the resolver before freeing its bindings.
 
-### Terminal input
-
-A binding works only when the terminal delivers its input. OS shortcuts and terminal shortcuts can intercept keys, including Command and Win combinations.
-On macOS, Option can produce Unicode characters instead of Alt input. Configure the terminal to send Alt when shortcuts need that modifier.
-For Ghostty, see [`macos-option-as-alt`](https://ghostty.org/docs/config/reference#macos-option-as-alt).
-Unicode text remains character input; the library does not infer AltGr or physical US/JIS keys from text alone.
-
-Legacy terminal protocols cannot identify every modifier combination. Extended keyboard protocols can provide additional key and modifier fields.
-See the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) for protocol details.
-The adapter uses the event fields and matching rules supplied by libvaxis.
-
-The application remains responsible for file loading, event decoding, client-platform selection, and input routing.
-
 ## Development
 
 ```sh
@@ -277,8 +264,6 @@ zig fmt build.zig build.zig.zon src e2e
 zig build test -Doptimize=Debug
 zig build test -Doptimize=ReleaseSafe
 ```
-
-CI runs library, public API, and dependency-free consumer tests natively on macOS, Windows, and Linux in both modes.
 
 ## API documentation
 
