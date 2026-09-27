@@ -6,6 +6,9 @@
   "schedule": ["* * * * 1"],
   "updateNotScheduled": false,
   "automerge": false,
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
   "packageRules": [
     {
       "matchManagers": ["mise"],
