@@ -5,9 +5,9 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/hashiiiii/zig-keymap/ci.yml?branch=main&label=CI)](https://github.com/hashiiiii/zig-keymap/actions/workflows/ci.yml)
 [![Zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg?logo=zig&logoColor=white)](https://ziglang.org)
 
-zig-keymap maps keys to actions in Zig terminal applications.
-Define default key bindings in Zig.
-Users can change them with JSON configuration.
+zig-keymap maps keys to actions in Zig terminal applications.  
+Define default key bindings in Zig.  
+Users can change them with JSON configuration.  
 
 Use zig-keymap to:
 
@@ -39,11 +39,11 @@ In `build.zig`, add the `keymap` module to your application:
 
 ## Usage
 
-A context is an application mode or view.
-An action is an application operation.
-A binding assigns keys to a context and action.
+A context is an application mode or view.  
+An action is an application operation.  
+A binding assigns keys to a context and action.  
 
-The application provides `allocator`, optional JSON text in `optional_json`, and the incoming libvaxis key event `key`.
+The application provides `allocator`, optional JSON text in `optional_json`, and the incoming libvaxis key event `key`.  
 Declare the contexts, actions, default keys, and groups of contexts that can be active together:
 
 ```zig
@@ -76,17 +76,17 @@ const action = bindings.resolve(&.{ .global, .list }, keymap.vaxisMatcher(key));
 const label = bindings.hint(.global, .quit);
 ```
 
-`context_groups` lists contexts that can be active together.
-`load` checks each group for key conflicts.
-It also checks for conflicts within each context.
+`context_groups` lists contexts that can be active together.  
+`load` checks each group for key conflicts.  
+It also checks for conflicts within each context.  
 
-Pass the current active contexts to `resolve`.
-It returns the first matching action, or `null` if no binding matches.
-It checks contexts in the order you pass, then bindings in the order of `specification.defaults`.
+Pass the current active contexts to `resolve`.  
+It returns the first matching action, or `null` if no binding matches.  
+It checks contexts in the order you pass, then bindings in the order of `specification.defaults`.  
 
-`hint` returns the first configured key as a label, or an empty string if the action has no keys.
-`keys` returns the configured `Keyboard` values.
-Both results remain valid until `bindings.deinit()`.
+`hint` returns the first configured key as a label, or an empty string if the action has no keys.  
+`keys` returns the configured `Keyboard` values.  
+Both results remain valid until `bindings.deinit()`.  
 Do not free them separately.
 
 ### Configuration
@@ -99,20 +99,20 @@ Do not free them separately.
 }
 ```
 
-Your application reads the JSON file.
-Pass its text to `load`.
-To use the keys in `specification.defaults`, pass `null`.
+Your application reads the JSON file.  
+Pass its text to `load`.  
+To use the keys in `specification.defaults`, pass `null`.  
 
-Actions missing from the JSON keep their default keys.
-A JSON array replaces the default keys for that action.
-`[]` removes all keys for that action.
+Actions missing from the JSON keep their default keys.  
+A JSON array replaces the default keys for that action.  
+`[]` removes all keys for that action.  
 
-If the configuration has errors, `load` returns a diagnostic that describes the problem.
-Errors include unknown names, invalid values or keys, duplicate fields, and key conflicts.
+If the configuration has errors, `load` returns a diagnostic that describes the problem.  
+Errors include unknown names, invalid values or keys, duplicate fields, and key conflicts.  
 
 ### Keys
 
-A codepoint is a number that identifies a character.
+A codepoint is a number that identifies a character.  
 Use a character or a key name:
 
 | Type | Keys |
@@ -132,16 +132,27 @@ Add modifiers with `+`: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.
 | Modifier + key | `Ctrl+Enter`, `Shift+v`, `Ctrl++` |
 | Several modifiers + key | `Ctrl+Shift+Enter` |
 
-Key names and modifier names ignore case.
+Key names and modifier names ignore case.  
 Character keys keep their case.
 
 For other terminal libraries, provide a matcher with `matches(Keyboard) bool`.
 
+## Development
+
+```sh
+mise install
+zig fmt build.zig build.zig.zon src e2e
+zig build test -Doptimize=Debug
+zig build test -Doptimize=ReleaseSafe
+```
+
 ## API documentation
 
-Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).
-To generate it locally, run `zig build docs`.
-The output is in `zig-out/docs`.
+Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).  
+To generate it locally, run `zig build docs`.  
+The output is in `zig-out/docs`.  
 The Docs workflow publishes the documentation to Cloudflare Workers when `main` changes.
 
-zig-keymap uses the [Apache License 2.0](LICENSE).
+## License
+
+[Apache License 2.0](LICENSE).
