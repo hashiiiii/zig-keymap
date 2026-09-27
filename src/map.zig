@@ -1,15 +1,40 @@
 const std = @import("std");
 const testing = std.testing;
-const KeySpec = @import("key.zig").KeySpec;
+const Keyboard = @import("key.zig").Keyboard;
 
+/// A problem found while loading JSON settings or validating a keymap specification.
+/// Read `message()` for the description. JSON syntax errors also include a line and column when available.
 pub const Diagnostic = struct {
-    pub const Kind = enum { syntax, unknown_context, unknown_action, invalid_type, invalid_key, collision, invalid_specification };
+    /// The kind of problem found when loading a keymap.
+    pub const Kind = enum {
+        /// The JSON is invalid or contains duplicate fields.
+        syntax,
+        /// The JSON names a context with no declared bindings.
+        unknown_context,
+        /// The JSON names an action not declared for its context.
+        unknown_action,
+        /// A JSON value has the wrong type.
+        invalid_type,
+        /// A default or configured key expression is invalid.
+        invalid_key,
+        /// Two bindings use equivalent keys in contexts that can be active together.
+        collision,
+        /// The defaults repeat a context and action pair.
+        invalid_specification,
+    };
+    /// The problem category.
     kind: Kind,
+    /// JSON line number, starting at 1, when available.
     line: ?u32 = null,
+    /// JSON column number, starting at 1, when available.
     column: ?u32 = null,
+    /// Internal storage for the diagnostic message.
     buffer: [512]u8 = undefined,
+    /// Number of message bytes stored in `buffer`.
     length: usize,
 
+    /// Returns the message stored in this diagnostic.
+    /// The returned slice remains valid while this diagnostic remains alive and unchanged.
     pub fn message(self: *const Diagnostic) []const u8 {
         return self.buffer[0..self.length];
     }
@@ -22,17 +47,65 @@ pub const Diagnostic = struct {
     }
 };
 
-pub fn Keymap(comptime Context: type, comptime Action: type) type {
+/// Creates a keymap type for the application's `Context` and `Action` enums.
+/// Each binding connects a context and action to a list of `Keyboard` conditions.
+/// Use `load()` to create bindings, `resolve()` to select an action, and `deinit()` to release the bindings.
+pub fn Keymap(
+    /// Enum of application contexts, such as global, list, or dialog.
+    comptime Context: type,
+    /// Enum of application actions, such as quit or move_down.
+    comptime Action: type,
+) type {
     return struct {
         const Self = @This();
-        pub const Default = struct { context: Context, action: Action, keys: []const []const u8 };
-        pub const Specification = struct { defaults: []const Default, context_groups: []const []const Context };
-        pub const LoadResult = union(enum) { bindings: Self, invalid: Diagnostic };
-        const Entry = struct { context: Context, action: Action, keys: []const KeySpec, hint: []const u8 };
+        /// The default key expressions for one context and action.
+        pub const Default = struct {
+            /// The context in which this binding is available.
+            context: Context,
+            /// The action selected when a key matches.
+            action: Action,
+            /// Key expressions accepted by `Keyboard.parse`, such as `Down` or `Ctrl+j`.
+            /// An empty slice declares an action with no default keys.
+            keys: []const []const u8,
+        };
+        /// Declares available bindings, their defaults, and contexts that may be used together.
+        pub const Specification = struct {
+            /// Available context and action pairs with their default keys.
+            /// JSON settings may override only these pairs; omitted actions keep their defaults.
+            defaults: []const Default,
+            /// Groups of contexts that can be active together, used by `load()` to check key conflicts.
+            /// Keys always undergo conflict checks within a single context. Pass active contexts separately to `resolve()`.
+            context_groups: []const []const Context,
+        };
+        /// Loaded bindings or a diagnostic describing invalid settings or defaults.
+        pub const LoadResult = union(enum) {
+            /// Owned bindings; release them with `deinit()`.
+            bindings: Self,
+            /// A configuration or specification problem. No bindings were retained.
+            invalid: Diagnostic,
+        };
+        /// Internal storage for one loaded binding.
+        const Entry = struct {
+            /// The context in which this binding is available.
+            context: Context,
+            /// The action selected when a key matches.
+            action: Action,
+            /// Parsed key conditions owned by the keymap.
+            keys: []const Keyboard,
+            /// The first key's label, or an empty string when no keys are assigned.
+            hint: []const u8,
+        };
 
+        /// Storage owned by this keymap and released by `deinit()`.
         arena: std.heap.ArenaAllocator,
+        /// Loaded bindings, read through `keys()`, `hint()`, and `resolve()`.
         entries: []Entry,
 
+        /// Loads bindings from `specification` and optional JSON settings.
+        /// Pass `null` to use the keys in `specification.defaults`.
+        /// A JSON array replaces an action's keys. `[]` removes all keys; omitted actions keep their defaults.
+        /// Invalid settings, defaults, or conflicting keys return `.invalid`; allocation failures return `error.OutOfMemory`.
+        /// The result owns its storage. Input text and specification slices may be released after this call.
         pub fn load(allocator: std.mem.Allocator, specification: Specification, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
             var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
@@ -90,10 +163,10 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
                     break :blk context.object.get(@tagName(binding.action));
                 } else null;
                 const count = if (override) |value| value.array.items.len else binding.keys.len;
-                const parsed_keys = try storage.alloc(KeySpec, count);
+                const parsed_keys = try storage.alloc(Keyboard, count);
                 for (parsed_keys, 0..) |*key, key_index| {
                     const expression = if (override) |value| value.array.items[key_index].string else binding.keys[key_index];
-                    key.* = KeySpec.parse(expression) catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
+                    key.* = Keyboard.parse(expression) catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
                 }
                 var label_buffer: [96]u8 = undefined;
                 entries[index] = .{ .context = binding.context, .action = binding.action, .keys = parsed_keys, .hint = if (parsed_keys.len == 0) "" else try storage.dupe(u8, parsed_keys[0].format(&label_buffer)) };
@@ -128,7 +201,7 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
 
         /// Returns the first matching action, or `null` when no binding matches.
         /// The order of `active_contexts`, then default declaration order, decides which action wins when several bindings match.
-        /// Matchers must provide `matches(KeySpec) bool`; use `vaxisMatcher` for libvaxis keys.
+        /// Matchers must provide `matches(Keyboard) bool`; use `vaxisMatcher` for libvaxis keys.
         pub fn resolve(self: *const Self, active_contexts: []const Context, matcher: anytype) ?Action {
             for (active_contexts) |context| {
                 for (self.entries) |entry| {
@@ -141,9 +214,9 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
             return null;
         }
 
-        /// Returns configured keys, or an empty slice for an unbound action.
+        /// Returns configured `Keyboard` conditions, or an empty slice for an action with no keys.
         /// The keymap owns this slice; it remains valid until `deinit()` and must not be freed separately.
-        pub fn keys(self: *const Self, context: Context, action: Action) []const KeySpec {
+        pub fn keys(self: *const Self, context: Context, action: Action) []const Keyboard {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.keys;
             }
@@ -159,6 +232,7 @@ pub fn Keymap(comptime Context: type, comptime Action: type) type {
             return "";
         }
 
+        /// Releases all storage owned by this keymap and invalidates slices returned by `keys()` and `hint()`.
         pub fn deinit(self: *Self) void {
             self.arena.deinit();
             self.* = undefined;
@@ -176,8 +250,8 @@ test "load uses default aliases and the first key as the hint" {
     defer map.deinit();
 
     try testing.expectEqual(@as(usize, 2), map.keys(.tree, .move_down).len);
-    try testing.expectEqual(KeySpec{ .key = .{ .named = .down } }, map.keys(.tree, .move_down)[0]);
-    try testing.expectEqual(KeySpec{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1]);
+    try testing.expectEqual(Keyboard{ .key = .{ .named = .down } }, map.keys(.tree, .move_down)[0]);
+    try testing.expectEqual(Keyboard{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1]);
     try testing.expectEqualStrings("Down", map.hint(.tree, .move_down));
     try testing.expectEqual(@as(usize, 0), map.keys(.tree, .move_up).len);
     try testing.expectEqualStrings("", map.hint(.tree, .move_up));
@@ -333,7 +407,7 @@ test "load owns bindings after the input is freed" {
         }, text)).bindings;
     };
     defer map.deinit();
-    try testing.expectEqual(KeySpec{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, map.keys(.tree, .move_down)[0]);
-    try testing.expectEqual(KeySpec{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1]);
+    try testing.expectEqual(Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, map.keys(.tree, .move_down)[0]);
+    try testing.expectEqual(Keyboard{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1]);
     try testing.expectEqualStrings("Ctrl+n", map.hint(.tree, .move_down));
 }
