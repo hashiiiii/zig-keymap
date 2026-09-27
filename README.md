@@ -117,4 +117,4 @@ The Docs workflow publishes it to Cloudflare Workers when `main` changes.
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache License 2.0](LICENSE)
