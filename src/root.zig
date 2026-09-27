@@ -1,24 +1,32 @@
-//! Keyboard bindings for Zig terminal applications.
+//! zig-keymap maps keys to actions in Zig terminal applications.
 //!
-//! Define contexts, actions, and default keys in Zig.
-//! Load optional JSON settings, then match incoming key events to actions.
+//! A context is an application mode or view.
+//! An action is an application operation.
+//! A binding assigns keys to a context and action.
+//! Define bindings in Zig.
+//! Load optional JSON configuration.
 //!
 //! ## Type relationships
 //!
 //! | Type | Represents | Example |
 //! | --- | --- | --- |
 //! | `Keymap` | Bindings for the application's context and action enums | `list.move_down` bound to `Down` and `j` |
-//! | `Keyboard` | One key and its modifiers, used as a matching condition | `Ctrl+Enter` |
+//! | `Keyboard` | The key and modifiers to match | `Ctrl+Enter` |
 //! | `Key` | A character or named key, without modifiers | `j` or `Enter` |
 //! | `NamedKey` | A key identified by name | `enter`, `down`, `f1` |
 //! | `Modifiers` | Modifier flags used with a key | `ctrl = true` |
 //! | `Diagnostic` | A problem in the configuration or specification | An invalid key or conflicting binding |
 //!
-//! `Keyboard.key` is a `Key`; `Keyboard.modifiers` is a `Modifiers` value.
-//! A `Key` contains either a Unicode codepoint or a `NamedKey`.
-//! Terminal libraries provide incoming key events. `vaxisMatcher` compares libvaxis events with configured `Keyboard` values.
+//! `Keyboard.key` holds a `Key`.
+//! `Keyboard.modifiers` holds the modifier flags.
+//! A `Key` contains a Unicode codepoint or a `NamedKey`.
+//! A codepoint is a number that identifies a character.
+//! Terminal libraries provide incoming key events.
+//! `vaxisMatcher` creates a matcher that compares libvaxis events with `Keyboard` values.
 //!
 //! ## Usage
+//!
+//! The application provides `allocator` and the incoming libvaxis key event `event`.
 //!
 //! ```zig
 //! const keymap = @import("keymap");
@@ -43,27 +51,27 @@
 //! const label = bindings.hint(.list, .move_down);
 //! ```
 //!
-//! The application provides `allocator` and the incoming libvaxis key event `event`.
-//! Pass JSON text to `load`, or `null` to use the declared defaults.
-//! Other terminal libraries supply a matcher with `matches(Keyboard) bool`.
+//! If you have JSON configuration, pass its text to `load`.
+//! To use the keys in `specification.defaults`, pass `null`.
+//! For other terminal libraries, provide a matcher with `matches(Keyboard) bool`.
 
 const key = @import("key.zig");
 const map = @import("map.zig");
 const vaxis = @import("vaxis.zig");
 
-/// A key identified by name, such as `Enter`, `Down`, or `F1`.
+/// `NamedKey` represents a key identified by name, such as `Enter`, `Down`, or `F1`.
 pub const NamedKey = key.NamedKey;
-/// Modifier flags used with a `Key` in `Keyboard`.
+/// `Modifiers` holds the modifier flags for a `Keyboard` value.
 pub const Modifiers = key.Modifiers;
-/// One character or named key, without modifiers.
+/// `Key` represents one character or named key, without modifiers.
 pub const Key = key.Key;
-/// One key and its modifiers, used as a matching condition.
+/// `Keyboard` describes the key and modifiers to match.
 pub const Keyboard = key.Keyboard;
-/// A problem found when loading a keymap.
+/// `Diagnostic` describes a problem that `Keymap.load` finds.
 pub const Diagnostic = map.Diagnostic;
-/// Creates a keymap type for the application's context and action enums.
+/// `Keymap` creates a type for the application's context and action enums.
 pub const Keymap = map.Keymap;
-/// Adapts a libvaxis key event for `Keymap.resolve`.
+/// `vaxisMatcher` creates a matcher for libvaxis key events.
 pub const vaxisMatcher = vaxis.vaxisMatcher;
 
 test {

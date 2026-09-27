@@ -5,25 +5,29 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/hashiiiii/zig-keymap/ci.yml?branch=main&label=CI)](https://github.com/hashiiiii/zig-keymap/actions/workflows/ci.yml)
 [![Zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg?logo=zig&logoColor=white)](https://ziglang.org)
 
-A library for keyboard shortcuts in Zig terminal applications. Define default shortcuts in Zig and let users change them with JSON settings.
+zig-keymap maps keys to actions in Zig terminal applications.
+Define default key bindings in Zig.
+Users can change them with JSON configuration.
 
-- Define shortcuts for global actions, views, and modal dialogs.
-- Assign several keys to each action. Users can change or disable its shortcuts while keeping defaults for other actions.
-- Check settings for invalid keys and conflicts between contexts that can be active together.
-- Get shortcut labels for help text.
-- Match [libvaxis](https://github.com/rockorager/libvaxis) key events with the included `vaxisMatcher` helper.
+Use zig-keymap to:
 
-Requires Zig `0.16.0`. The library has no external dependencies.
+- Define bindings for global actions, views, and modal dialogs.
+- Assign several keys to each action.
+- Check for invalid keys and conflicts between contexts that can be active together.
+- Get key labels for help text.
+- Match [libvaxis](https://github.com/rockorager/libvaxis) key events with `vaxisMatcher`.
 
 ## Installation
 
-1. Add `zig_keymap` to your application's `build.zig.zon`:
+zig-keymap requires Zig `0.16.0` and has no external dependencies.
+
+Add `zig_keymap` to your application's `build.zig.zon`:
 
    ```sh
    zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#v0.1.0"
    ```
 
-2. In your `build.zig`, add the `keymap` module to your application:
+In `build.zig`, add the `keymap` module to your application:
 
    ```zig
    const keymap = b.dependency("zig_keymap", .{
@@ -35,7 +39,12 @@ Requires Zig `0.16.0`. The library has no external dependencies.
 
 ## Usage
 
-Declare application contexts, actions, defaults, and the contexts that can be active together:
+A context is an application mode or view.
+An action is an application operation.
+A binding assigns keys to a context and action.
+
+The application provides `allocator`, optional JSON text in `optional_json`, and the incoming libvaxis key event `key`.
+Declare the contexts, actions, default keys, and groups of contexts that can be active together:
 
 ```zig
 const std = @import("std");
@@ -67,8 +76,18 @@ const action = bindings.resolve(&.{ .global, .list }, keymap.vaxisMatcher(key));
 const label = bindings.hint(.global, .quit);
 ```
 
-`context_groups` lists contexts that can be used together. `load` checks each group for key conflicts.
-Pass the active contexts to `resolve`. It returns an action, or `null` if no key matches.
+`context_groups` lists contexts that can be active together.
+`load` checks each group for key conflicts.
+It also checks for conflicts within each context.
+
+Pass the current active contexts to `resolve`.
+It returns the first matching action, or `null` if no binding matches.
+It checks contexts in the order you pass, then bindings in the order of `specification.defaults`.
+
+`hint` returns the first configured key as a label, or an empty string if the action has no keys.
+`keys` returns the configured `Keyboard` values.
+Both results remain valid until `bindings.deinit()`.
+Do not free them separately.
 
 ### Configuration
 
@@ -80,29 +99,32 @@ Pass the active contexts to `resolve`. It returns an action, or `null` if no key
 }
 ```
 
-Your application reads the JSON file. Pass its text to `load`.
-Pass `null` to use the keys in `specification.defaults`.
+Your application reads the JSON file.
+Pass its text to `load`.
+To use the keys in `specification.defaults`, pass `null`.
 
 Actions missing from the JSON keep their default keys.
-A key array replaces the default keys for that action. `[]` removes all keys for that action.
+A JSON array replaces the default keys for that action.
+`[]` removes all keys for that action.
 
-If the settings have errors, `load` returns a diagnostic.
+If the configuration has errors, `load` returns a diagnostic that describes the problem.
 Errors include unknown names, invalid values or keys, duplicate fields, and key conflicts.
 
 ### Keys
 
-Use a character or a key name.
+A codepoint is a number that identifies a character.
+Use a character or a key name:
 
 | Type | Keys |
 | --- | --- |
-| Character | One Unicode character, such as `j`, `あ`, or `+` |
+| Character | One Unicode codepoint, such as `j`, `あ`, or `+` |
 | Arrows | `Up`, `Down`, `Left`, `Right` |
 | Navigation | `Home`, `End`, `PageUp`, `PageDown` |
 | Editing | `Backspace`, `Delete`, `Insert` |
 | Other keys | `Enter`, `Escape`, `Tab`, `Space` |
 | Function keys | `F1`–`F12` |
 
-Add one or more modifiers with `+`: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.
+Add modifiers with `+`: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.
 
 | Format | Examples |
 | --- | --- |
@@ -110,16 +132,16 @@ Add one or more modifiers with `+`: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hy
 | Modifier + key | `Ctrl+Enter`, `Shift+v`, `Ctrl++` |
 | Several modifiers + key | `Ctrl+Shift+Enter` |
 
-Key names and modifier names ignore case. Character keys keep their case.
+Key names and modifier names ignore case.
+Character keys keep their case.
+
+For other terminal libraries, provide a matcher with `matches(Keyboard) bool`.
 
 ## API documentation
 
 Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).
+To generate it locally, run `zig build docs`.
+The output is in `zig-out/docs`.
+The Docs workflow publishes the documentation to Cloudflare Workers when `main` changes.
 
-Generate API documentation with `zig build docs`. The output is in `zig-out/docs`.
-
-The Docs workflow publishes it to Cloudflare Workers when `main` changes.
-
-## License
-
-[Apache License 2.0](LICENSE)
+zig-keymap uses the [Apache License 2.0](LICENSE).
