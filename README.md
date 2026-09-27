@@ -107,6 +107,14 @@ Add one or more modifiers with `+`: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hy
 
 Key names and modifier names ignore case. Character keys keep their case.
 
+## API documentation
+
+Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).
+
+Generate API documentation with `zig build docs`. The output is in `zig-out/docs`.
+
+The Docs workflow publishes it to Cloudflare Workers when `main` changes.
+
 ## License
 
 [Apache-2.0](LICENSE)

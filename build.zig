@@ -10,6 +10,21 @@ pub fn build(b: *std.Build) void {
     });
     // Only repository tests need terminal packages; consumers supply their own key types.
     if (b.dep_prefix.len != 0) return;
+    const docs = b.addObject(.{
+        .name = "keymap",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = docs.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    b.step("docs", "Generate API documentation").dependOn(&install_docs.step);
+
     const vaxis = (b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize }) orelse return).module("vaxis");
     const tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
