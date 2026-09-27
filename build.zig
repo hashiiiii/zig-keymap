@@ -56,6 +56,7 @@ pub fn build(b: *std.Build) void {
     });
     b.step("terminal-probe", "Build the interactive terminal input probe").dependOn(&terminal_probe.step);
     const run_terminal_probe = b.addRunArtifact(terminal_probe);
+    if (b.args) |args| run_terminal_probe.addArgs(args);
     b.step("run-terminal-probe", "Record terminal input and keymap resolution").dependOn(&run_terminal_probe.step);
 
     const test_step = b.step("test", "Run unit and end-to-end tests");

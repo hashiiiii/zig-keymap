@@ -21,8 +21,6 @@
 //! | `Key` | A character or named key, without modifiers | `j` or `Enter` |
 //! | `NamedKey` | A key identified by name | `enter`, `down`, `f1` |
 //! | `Modifiers` | Modifier flags used with a key | `ctrl = true` |
-//! | `Platform` | The client operating system used to resolve `Mod` | `macos` |
-//! | `DisplayStyle` | Modifier names used in shortcut labels | `macos` |
 //! | `Diagnostic` | A problem in the configuration or definition | An invalid key or conflicting binding |
 //!
 //! `Keyboard.key` holds a `Key`.\
