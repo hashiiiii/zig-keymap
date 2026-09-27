@@ -1,6 +1,9 @@
 const std = @import("std");
 const testing = std.testing;
-const Keyboard = @import("key.zig").Keyboard;
+const key_module = @import("key.zig");
+const Keyboard = key_module.Keyboard;
+const Platform = key_module.Platform;
+const DisplayStyle = key_module.DisplayStyle;
 const sequence = @import("sequence.zig");
 
 /// `Diagnostic` describes a problem in the JSON configuration or keymap definition.\
@@ -80,13 +83,24 @@ pub fn Bindings(
         pub const Definition = struct {
             /// This list declares context and action pairs with their default keys.\
             /// JSON configuration can change keys only for these pairs.\
-            /// Actions missing from the JSON keep their default keys.
+            /// Actions missing from the JSON keep their default keys.\
+            /// Use `Mod` only when `loadWithOptions` selects a platform.
             defaults: []const Default,
             /// Each group lists contexts that can be active together.\
             /// `load()` checks for key conflicts between bindings in these contexts.\
             /// It always checks for conflicts within each context.\
             /// Pass the current active contexts to `resolve()`.
             context_groups: []const []const Context,
+        };
+        /// `LoadOptions` selects how portable modifiers are resolved and how hints are displayed.
+        pub const LoadOptions = struct {
+            /// The client platform used to resolve `Mod`.\
+            /// `null` leaves keys concrete-only, so a `Mod` expression is invalid.\
+            /// Select the client keyboard platform explicitly; the build target may differ.
+            platform: ?Platform = null,
+            /// The modifier names used for `hint()` labels.\
+            /// This setting does not change matching or collision checks.
+            display_style: DisplayStyle = .common,
         };
         /// `LoadResult` contains loaded bindings or a diagnostic that describes invalid configuration or defaults.
         pub const LoadResult = union(enum) {
@@ -120,7 +134,8 @@ pub fn Bindings(
         /// To use the keys in `definition.defaults`, pass `null`.\
         /// A JSON array replaces the default keys for that action.\
         /// `[]` removes all keys for that action.\
-        /// Actions missing from the JSON keep their default keys.
+        /// Actions missing from the JSON keep their default keys.\
+        /// Keys must use concrete modifier names; use `loadWithOptions` to enable `Mod`.
         ///
         /// `load` returns `.invalid` for invalid configuration, invalid defaults, or key conflicts.\
         /// If memory allocation fails, `load` returns `error.OutOfMemory`.
@@ -128,6 +143,21 @@ pub fn Bindings(
         /// The loaded bindings own their memory.\
         /// After this call, you can free the input text and definition slices.
         pub fn load(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
+            return loadWithOptions(allocator, definition, text, .{});
+        }
+
+        /// `loadWithOptions` creates bindings with an explicit platform and hint display style.\
+        /// The selected platform resolves `Mod` in both defaults and JSON overrides before collision checks.\
+        /// The display style affects only labels returned by `hint()`.\
+        /// A `null` platform keeps parsing concrete-only; it never infers a platform from the build target.\
+        /// Omitted JSON actions keep their defaults, while `[]` disables the action.
+        ///
+        /// `loadWithOptions` returns `.invalid` for invalid configuration, invalid defaults, or key conflicts.\
+        /// If memory allocation fails, it returns `error.OutOfMemory`.
+        ///
+        /// The loaded bindings own their keys and labels until `deinit()`.\
+        /// After this call, you can free the input text and definition slices.
+        pub fn loadWithOptions(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8, options: LoadOptions) std.mem.Allocator.Error!LoadResult {
             var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
             defer if (!retained) arena.deinit();
@@ -191,7 +221,11 @@ pub fn Bindings(
                     var steps = sequence.Steps.init(expression);
                     var parsed: std.ArrayList(Keyboard) = .empty;
                     while (steps.next()) |step| {
-                        const key = Keyboard.parse(step) catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
+                        const parsed_step = if (options.platform) |platform|
+                            Keyboard.parseForPlatform(step, platform)
+                        else
+                            Keyboard.parse(step);
+                        const key = parsed_step catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
                         try parsed.append(storage, key);
                     }
                     if (parsed.items.len == 0) return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
@@ -206,7 +240,7 @@ pub fn Bindings(
                 if (shortcuts.len != 0) {
                     for (shortcuts[0].keys, 0..) |key, step_index| {
                         if (step_index != 0) try label.append(storage, ' ');
-                        try label.appendSlice(storage, key.format(&label_buffer));
+                        try label.appendSlice(storage, key.formatWithStyle(&label_buffer, options.display_style));
                     }
                 }
                 entries[index] = .{ .context = binding.context, .action = binding.action, .keys = try single_keys.toOwnedSlice(storage), .sequences = shortcuts, .hint = try label.toOwnedSlice(storage) };
@@ -470,4 +504,48 @@ test "load owns bindings after the input is freed" {
     try testing.expectEqual(Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, map.keys(.tree, .move_down)[0]);
     try testing.expectEqual(Keyboard{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1]);
     try testing.expectEqualStrings("Ctrl+n", map.hint(.tree, .move_down));
+}
+
+test "loadWithOptions expands Mod in defaults and overrides and styles hints" {
+    // Definitions and JSON must resolve portable modifiers with the same selected platform.
+    const Map = Bindings(enum { tree }, enum { move_down, quit });
+    const override_text =
+        \\{"tree": {"quit": ["Mod+q"]}}
+    ;
+    var map = (try Map.loadWithOptions(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .tree, .action = .move_down, .keys = &.{"Mod+K"} },
+            .{ .context = .tree, .action = .quit, .keys = &.{"q"} },
+        },
+        .context_groups = &.{},
+    }, override_text, .{ .platform = .macos, .display_style = .macos })).bindings;
+    defer map.deinit();
+
+    try testing.expectEqual(Keyboard{ .key = .{ .character = 'K' }, .modifiers = .{ .super = true } }, map.keys(.tree, .move_down)[0]);
+    try testing.expectEqual(Keyboard{ .key = .{ .character = 'q' }, .modifiers = .{ .super = true } }, map.keys(.tree, .quit)[0]);
+    try testing.expectEqualStrings("Command+K", map.hint(.tree, .move_down));
+    try testing.expectEqualStrings("Command+q", map.hint(.tree, .quit));
+}
+
+test "loadWithOptions detects Mod collisions in overlapping contexts" {
+    // Platform expansion must happen before conflict checks for active context groups.
+    const Map = Bindings(enum { global, tree }, enum { quit, move_down });
+    const override_text =
+        \\{"tree": {"move_down": ["Mod+s"]}}
+    ;
+    const result = try Map.loadWithOptions(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .global, .action = .quit, .keys = &.{"Ctrl+s"} },
+            .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
+        },
+        .context_groups = &.{&.{ .global, .tree }},
+    }, override_text, .{ .platform = .linux });
+    switch (result) {
+        .invalid => |diagnostic| try testing.expectEqual(Diagnostic.Kind.collision, diagnostic.kind),
+        .bindings => |bindings| {
+            var map = bindings;
+            defer map.deinit();
+            return error.TestUnexpectedResult;
+        },
+    }
 }

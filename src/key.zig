@@ -112,6 +112,30 @@ pub const Modifiers = packed struct {
     hyper: bool = false,
 };
 
+/// `Platform` selects which concrete modifier the portable `Mod` name uses.
+/// The application chooses the platform of the client keyboard, which may differ from the build target.
+pub const Platform = enum {
+    /// Resolve `Mod` to `Super` for a macOS client.
+    macos,
+    /// Resolve `Mod` to `Ctrl` for a Windows client.
+    windows,
+    /// Resolve `Mod` to `Ctrl` for a Linux client.
+    linux,
+};
+
+/// `DisplayStyle` selects platform-friendly modifier names for shortcut labels.
+/// It changes labels only; it does not change matching or collision behavior.
+pub const DisplayStyle = enum {
+    /// Display `Ctrl`, `Alt`, `Shift`, and `Super` on every platform.
+    common,
+    /// Display `Option` for Alt and `Command` for Super.
+    macos,
+    /// Display `Alt` for Alt and `Win` for Super.
+    windows,
+    /// Display `Alt` for Alt and `Super` for Super.
+    linux,
+};
+
 /// `Key` represents one character or named key, without modifiers.\
 /// `Keyboard` combines this value with `Modifiers` to describe keys such as `Ctrl+Enter`.
 pub const Key = union(enum) {
@@ -136,10 +160,23 @@ pub const Keyboard = struct {
     /// Key names and modifier names ignore case.\
     /// Modifiers accept `Shift`, `Ctrl` (`Control`), `Alt` (`Option`, `Opt`),\
     /// `Super` (`Command`, `Cmd`, `Win`, `Windows`), `Meta`, and `Hyper`.\
+    /// Use `parseForPlatform` to parse the portable `Mod` modifier.\
     /// Aliases set the same flags as canonical names and count as duplicates when repeated.\
     /// Character keys keep their case and must contain exactly one Unicode codepoint.\
     /// `parse` returns `error.InvalidKey` for invalid UTF-8, unknown names, duplicate modifiers, or malformed strings.
     pub fn parse(text: []const u8) error{InvalidKey}!Keyboard {
+        return parseText(text, null);
+    }
+
+    /// `parseForPlatform` reads a key string and resolves `Mod` for `platform`.\
+    /// `Mod` resolves to `Super` on macOS and `Ctrl` on Windows and Linux.\
+    /// Other modifier names retain their concrete meaning on every platform.\
+    /// Choose the platform of the client keyboard; the build target may be different.
+    pub fn parseForPlatform(text: []const u8, platform: Platform) error{InvalidKey}!Keyboard {
+        return parseText(text, platform);
+    }
+
+    fn parseText(text: []const u8, platform: ?Platform) error{InvalidKey}!Keyboard {
         var remaining = text;
         var modifiers: Modifiers = .{};
         while (!std.mem.eql(u8, remaining, "+")) {
@@ -152,8 +189,10 @@ pub const Keyboard = struct {
             else if (std.ascii.eqlIgnoreCase(name, "Command") or std.ascii.eqlIgnoreCase(name, "Cmd") or
                 std.ascii.eqlIgnoreCase(name, "Win") or std.ascii.eqlIgnoreCase(name, "Windows"))
                 "super"
-            else
-                name;
+            else if (std.ascii.eqlIgnoreCase(name, "Mod")) blk: {
+                const selected_platform = platform orelse return error.InvalidKey;
+                break :blk if (selected_platform == .macos) "super" else "ctrl";
+            } else name;
             var found = false;
             inline for (std.meta.fields(Modifiers)) |field| {
                 if (std.ascii.eqlIgnoreCase(prefix, field.name)) {
@@ -175,14 +214,29 @@ pub const Keyboard = struct {
         return .{ .key = .{ .character = character }, .modifiers = modifiers };
     }
 
-    /// `format` writes a key label into `buffer` with standard key names and modifier names.\
+    /// `format` writes a key label into `buffer` with common key and modifier names.\
     /// Modifiers appear in this order: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
     /// Character keys keep their case.\
     /// The result refers to `buffer`.\
     /// While you use the result, keep `buffer` alive and unchanged.
     pub fn format(self: Keyboard, buffer: *[96]u8) []const u8 {
+        return self.formatWithStyle(buffer, .common);
+    }
+
+    /// `formatWithStyle` writes a key label into `buffer` using `style` modifier names.\
+    /// Modifiers keep the order `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
+    /// Character keys keep their case, and a literal plus remains the final key character.\
+    /// Formatting does not change the key or modifier flags.\
+    /// The result refers to `buffer`; keep it alive and unchanged while using the result.
+    pub fn formatWithStyle(self: Keyboard, buffer: *[96]u8, style: DisplayStyle) []const u8 {
+        const labels = switch (style) {
+            .common => .{ "Ctrl+", "Alt+", "Shift+", "Super+", "Meta+", "Hyper+" },
+            .macos => .{ "Ctrl+", "Option+", "Shift+", "Command+", "Meta+", "Hyper+" },
+            .windows => .{ "Ctrl+", "Alt+", "Shift+", "Win+", "Meta+", "Hyper+" },
+            .linux => .{ "Ctrl+", "Alt+", "Shift+", "Super+", "Meta+", "Hyper+" },
+        };
         var end: usize = 0;
-        inline for (.{ "ctrl", "alt", "shift", "super", "meta", "hyper" }, .{ "Ctrl+", "Alt+", "Shift+", "Super+", "Meta+", "Hyper+" }) |field, label| {
+        inline for (.{ "ctrl", "alt", "shift", "super", "meta", "hyper" }, labels) |field, label| {
             if (@field(self.modifiers, field)) {
                 @memcpy(buffer[end..][0..label.len], label);
                 end += label.len;
@@ -261,6 +315,28 @@ test "parse resolves platform modifier names with case-insensitive spelling" {
     try testing.expect(!(try Keyboard.parse("Win+k")).equivalent(try Keyboard.parse("Hyper+k")));
 }
 
+test "parseForPlatform resolves Mod and preserves concrete modifiers" {
+    // Applications select the client platform explicitly because a terminal may be remote.
+    try testing.expectEqual(try Keyboard.parse("Super+s"), try Keyboard.parseForPlatform("mOd+s", .macos));
+    try testing.expectEqual(try Keyboard.parse("Ctrl+s"), try Keyboard.parseForPlatform("Mod+s", .windows));
+    try testing.expectEqual(try Keyboard.parse("Ctrl+s"), try Keyboard.parseForPlatform("Mod+s", .linux));
+    try testing.expectEqual(try Keyboard.parse("Ctrl+s"), try Keyboard.parseForPlatform("Ctrl+s", .macos));
+    try testing.expectEqual(try Keyboard.parse("Ctrl+s"), try Keyboard.parseForPlatform("Ctrl+s", .windows));
+    try testing.expectEqual(try Keyboard.parse("Ctrl+s"), try Keyboard.parseForPlatform("Ctrl+s", .linux));
+    try testing.expectEqual(try Keyboard.parse("Super+s"), try Keyboard.parseForPlatform("Super+s", .macos));
+    try testing.expectEqual(try Keyboard.parse("Super+s"), try Keyboard.parseForPlatform("Super+s", .windows));
+    try testing.expectEqual(try Keyboard.parse("Super+s"), try Keyboard.parseForPlatform("Super+s", .linux));
+}
+
+test "parseForPlatform rejects duplicate effective modifiers" {
+    // Mod aliases must be checked after platform expansion so duplicate flags cannot slip through.
+    try testing.expectError(error.InvalidKey, Keyboard.parseForPlatform("Ctrl+Mod+s", .windows));
+    try testing.expectError(error.InvalidKey, Keyboard.parseForPlatform("Control+Mod+s", .linux));
+    try testing.expectError(error.InvalidKey, Keyboard.parseForPlatform("Super+Mod+s", .macos));
+    try testing.expectError(error.InvalidKey, Keyboard.parseForPlatform("Command+Mod+s", .macos));
+    try testing.expectError(error.InvalidKey, Keyboard.parse("Mod+s"));
+}
+
 test "parse rejects repeated modifiers written as platform aliases" {
     // Alternate names must not bypass duplicate checks and hide configuration mistakes.
     try testing.expectError(error.InvalidKey, Keyboard.parse("Alt+Option+k"));
@@ -298,6 +374,24 @@ test "format produces canonical hints for named and character keys" {
     }).format(&buffer));
     try testing.expectEqualStrings("Ctrl+あ", (Keyboard{ .key = .{ .character = 'あ' }, .modifiers = .{ .ctrl = true } }).format(&buffer));
     try testing.expectEqualStrings("Ctrl++", (Keyboard{ .key = .{ .character = '+' }, .modifiers = .{ .ctrl = true } }).format(&buffer));
+}
+
+test "formatWithStyle changes modifier names and keeps key spelling" {
+    // Labels should reflect the selected keyboard without changing key matching.
+    const keyboard = Keyboard{
+        .key = .{ .character = 'K' },
+        .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true },
+    };
+    var buffer: [96]u8 = undefined;
+    try testing.expectEqualStrings("Ctrl+Alt+Shift+Super+K", keyboard.formatWithStyle(&buffer, .common));
+    try testing.expectEqualStrings("Ctrl+Option+Shift+Command+K", keyboard.formatWithStyle(&buffer, .macos));
+    try testing.expectEqualStrings("Ctrl+Alt+Shift+Win+K", keyboard.formatWithStyle(&buffer, .windows));
+    try testing.expectEqualStrings("Ctrl+Alt+Shift+Super+K", keyboard.formatWithStyle(&buffer, .linux));
+    try testing.expectEqualStrings("Option+Command++", (Keyboard{
+        .key = .{ .character = '+' },
+        .modifiers = .{ .alt = true, .super = true },
+    }).formatWithStyle(&buffer, .macos));
+    try testing.expect(keyboard.equivalent(try Keyboard.parse("Ctrl+Option+Shift+Command+K")));
 }
 
 test "equivalent detects ASCII Shift aliases without merging other modifiers" {

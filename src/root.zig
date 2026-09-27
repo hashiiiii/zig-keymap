@@ -17,6 +17,8 @@
 //! | `Key` | A character or named key, without modifiers | `j` or `Enter` |
 //! | `NamedKey` | A key identified by name | `enter`, `down`, `f1` |
 //! | `Modifiers` | Modifier flags used with a key | `ctrl = true` |
+//! | `Platform` | The client operating system used to resolve `Mod` | `macos` |
+//! | `DisplayStyle` | Modifier names used in shortcut labels | `macos` |
 //! | `Diagnostic` | A problem in the configuration or definition | An invalid key or conflicting binding |
 //!
 //! `Keyboard.key` holds a `Key`.\
@@ -25,6 +27,11 @@
 //! A codepoint is a number that identifies a character.\
 //! Terminal libraries provide incoming key events.\
 //! `vaxisMatcher` creates a matcher that compares libvaxis events with `Keyboard` values.
+//!
+//! Select `Platform` from the operating system whose keyboard sends shortcut input.
+//! The library does not infer it from the build target because a terminal may run remotely.
+//! Pass that platform to `Keyboard.parseForPlatform` or `Bindings.loadWithOptions`.
+//! Choose `DisplayStyle` separately when labels should use platform-specific names.
 //!
 //! ## Usage
 //!
@@ -71,6 +78,10 @@ pub const Key = key.Key;
 pub const Keyboard = key.Keyboard;
 /// `Sequence` contains successive key presses belonging to loaded bindings.
 pub const Sequence = @import("sequence.zig").Sequence;
+/// `Platform` selects how `Mod` resolves for a client keyboard.
+pub const Platform = key.Platform;
+/// `DisplayStyle` selects platform-friendly names for shortcut labels.
+pub const DisplayStyle = key.DisplayStyle;
 /// `Diagnostic` describes a problem that `Bindings.load` finds.
 pub const Diagnostic = map.Diagnostic;
 /// `Bindings` creates a type for the application's context and action enums.
