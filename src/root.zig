@@ -51,7 +51,7 @@
 //! const label = bindings.hint(.list, .move_down);
 //! ```
 //!
-//! If you have JSON configuration, pass its text to `load`.
+//! To load `keymap.json`, pass its text to `load`.
 //! To use the keys in `specification.defaults`, pass `null`.
 //! For other terminal libraries, provide a matcher with `matches(Keyboard) bool`.
 
