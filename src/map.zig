@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const Keyboard = @import("key.zig").Keyboard;
+const sequence = @import("sequence.zig");
 
 /// `Diagnostic` describes a problem in the JSON configuration or keymap definition.\
 /// Read `message()` for the description.\
@@ -62,13 +63,16 @@ pub fn Bindings(
 ) type {
     return struct {
         const Self = @This();
+        /// `SequenceResolver` tracks pending key presses without owning the loaded shortcuts.
+        pub const SequenceResolver = sequence.Resolver(Context, Action);
         /// `Default` assigns default key strings to one context and action.
         pub const Default = struct {
             /// The binding applies to this context.
             context: Context,
             /// A key match selects this action.
             action: Action,
-            /// These key strings use the format that `Keyboard.parse` accepts, such as `Down` or `Ctrl+j`.\
+            /// Each string contains a key or successive keys separated by spaces, such as `Down` or `Ctrl+b n`.\
+            /// Use `Space` for a space inside a sequence.\
             /// An empty slice declares an action with no default keys.
             keys: []const []const u8,
         };
@@ -98,8 +102,10 @@ pub fn Bindings(
             context: Context,
             /// A key match selects this action.
             action: Action,
-            /// The bindings own these parsed `Keyboard` values.
+            /// These single-key shortcuts preserve the `keys()` API.
             keys: []const Keyboard,
+            /// These shortcuts include single keys and successive key presses.
+            sequences: []const sequence.Sequence,
             /// This field holds the first key label, or an empty string if the action has no keys.
             hint: []const u8,
         };
@@ -178,20 +184,39 @@ pub fn Bindings(
                     break :blk context.object.get(@tagName(binding.action));
                 } else null;
                 const count = if (override) |value| value.array.items.len else binding.keys.len;
-                const parsed_keys = try storage.alloc(Keyboard, count);
-                for (parsed_keys, 0..) |*key, key_index| {
+                const shortcuts = try storage.alloc(sequence.Sequence, count);
+                var single_keys: std.ArrayList(Keyboard) = .empty;
+                for (shortcuts, 0..) |*shortcut, key_index| {
                     const expression = if (override) |value| value.array.items[key_index].string else binding.keys[key_index];
-                    key.* = Keyboard.parse(expression) catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
+                    var steps = sequence.Steps.init(expression);
+                    var parsed: std.ArrayList(Keyboard) = .empty;
+                    while (steps.next()) |step| {
+                        const key = Keyboard.parse(step) catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
+                        try parsed.append(storage, key);
+                    }
+                    if (parsed.items.len == 0) return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
+                    shortcut.* = .{ .keys = try parsed.toOwnedSlice(storage) };
+                    if (shortcut.keys.len == 1) try single_keys.append(storage, shortcut.keys[0]);
+                    for (shortcuts[0..key_index]) |previous| {
+                        if (previous.keys.len != shortcut.keys.len and previous.overlaps(shortcut.*)) return .{ .invalid = Diagnostic.init(.collision, "Prefix collision for '{s}.{s}'", .{ @tagName(binding.context), @tagName(binding.action) }) };
+                    }
                 }
                 var label_buffer: [96]u8 = undefined;
-                entries[index] = .{ .context = binding.context, .action = binding.action, .keys = parsed_keys, .hint = if (parsed_keys.len == 0) "" else try storage.dupe(u8, parsed_keys[0].format(&label_buffer)) };
+                var label: std.ArrayList(u8) = .empty;
+                if (shortcuts.len != 0) {
+                    for (shortcuts[0].keys, 0..) |key, step_index| {
+                        if (step_index != 0) try label.append(storage, ' ');
+                        try label.appendSlice(storage, key.format(&label_buffer));
+                    }
+                }
+                entries[index] = .{ .context = binding.context, .action = binding.action, .keys = try single_keys.toOwnedSlice(storage), .sequences = shortcuts, .hint = try label.toOwnedSlice(storage) };
             }
             for (entries, 0..) |a, index| {
                 for (entries[index + 1 ..]) |b| {
                     if (!canOverlap(definition.context_groups, a.context, b.context)) continue;
-                    for (a.keys) |ak| {
-                        for (b.keys) |bk| {
-                            if (ak.equivalent(bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
+                    for (a.sequences) |ak| {
+                        for (b.sequences) |bk| {
+                            if (ak.overlaps(bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
                         }
                     }
                 }
@@ -231,7 +256,7 @@ pub fn Bindings(
             return null;
         }
 
-        /// `keys` returns the configured `Keyboard` values, or an empty slice if the action has no keys.\
+        /// `keys` returns single-key shortcuts. Use `sequences()` to include successive key presses.\
         /// The bindings own the result. It remains valid until `deinit()`.\
         /// Do not free it separately.
         pub fn keys(self: *const Self, context: Context, action: Action) []const Keyboard {
@@ -239,6 +264,21 @@ pub fn Bindings(
                 if (entry.context == context and entry.action == action) return entry.keys;
             }
             return &.{};
+        }
+
+        /// Return every configured shortcut, including successive key presses.\
+        /// The bindings own the returned sequences and their keys until `deinit()`.
+        pub fn sequences(self: *const Self, context: Context, action: Action) []const sequence.Sequence {
+            for (self.entries) |entry| {
+                if (entry.context == context and entry.action == action) return entry.sequences;
+            }
+            return &.{};
+        }
+
+        /// Create state for successive events. Free it before `bindings.deinit()`.\
+        /// `resolve()` remains available for single-key shortcuts.
+        pub fn sequenceResolver(self: *const Self, allocator: std.mem.Allocator, options: SequenceResolver.Options) std.mem.Allocator.Error!SequenceResolver {
+            return SequenceResolver.init(allocator, self.entries, options);
         }
 
         /// `hint` returns the first configured key as a label, or an empty string if the action has no keys.\

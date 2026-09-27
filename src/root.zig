@@ -69,6 +69,8 @@ pub const Modifiers = key.Modifiers;
 pub const Key = key.Key;
 /// `Keyboard` describes the key and modifiers to match.
 pub const Keyboard = key.Keyboard;
+/// `Sequence` contains successive key presses belonging to loaded bindings.
+pub const Sequence = @import("sequence.zig").Sequence;
 /// `Diagnostic` describes a problem that `Bindings.load` finds.
 pub const Diagnostic = map.Diagnostic;
 /// `Bindings` creates a type for the application's context and action enums.
