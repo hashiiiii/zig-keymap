@@ -10,20 +10,45 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  platform:
+    name: Native tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: zig
+      - name: Debug library tests
+        run: zig build test -Doptimize=Debug
+      - name: ReleaseSafe library tests
+        run: zig build test -Doptimize=ReleaseSafe
+      - name: Build terminal input probe
+        run: zig build terminal-probe -Doptimize=Debug
+      - name: Build ReleaseSafe terminal input probe
+        run: zig build terminal-probe -Doptimize=ReleaseSafe
+      - name: Debug dependency-free consumer
+        run: |
+          empty_packages="$(mktemp -d)"
+          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages" -Doptimize=Debug
+      - name: ReleaseSafe dependency-free consumer
+        run: |
+          empty_packages="$(mktemp -d)"
+          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages" -Doptimize=ReleaseSafe
+  format-docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
         with:
           install_args: zig
-      - name: Check
-        run: |
-          zig fmt --check build.zig build.zig.zon src e2e
-          zig build test docs -Doptimize=Debug
-          zig build test -Doptimize=ReleaseSafe
-      - name: Check consumer dependencies
-        run: |
-          # An empty system package directory catches dependencies even if CI has cached them.
-          empty_packages="$(mktemp -d)"
-          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages"
+      - name: Check formatting
+        run: zig fmt --check build.zig build.zig.zon src e2e tools
+      - name: Build API documentation
+        run: zig build docs -Doptimize=Debug
