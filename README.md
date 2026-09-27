@@ -1,5 +1,10 @@
 # zig-keymap
 
+[![License](https://img.shields.io/github/license/hashiiiii/zig-keymap)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/hashiiiii/zig-keymap)](https://github.com/hashiiiii/zig-keymap/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/hashiiiii/zig-keymap/ci.yml?branch=main&label=CI)](https://github.com/hashiiiii/zig-keymap/actions/workflows/ci.yml)
+[![Zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg?logo=zig&logoColor=white)](https://ziglang.org)
+
 A library for keyboard shortcuts in Zig terminal applications. Define default shortcuts in Zig and let users change them with JSON settings.
 
 - Define shortcuts for global actions, views, and modal dialogs.
