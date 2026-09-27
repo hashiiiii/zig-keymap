@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    // Repository tests and the input probe need terminal packages; consumers supply their own key types.
+    // Only repository tests need terminal packages; consumers supply their own key types.
     if (b.dep_prefix.len != 0) return;
     const docs = b.addObject(.{
         .name = "keymap",
@@ -41,23 +41,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "vaxis", .module = vaxis },
         },
     }) });
-
-    const terminal_probe = b.addExecutable(.{
-        .name = "terminal-probe",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/terminal_probe.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "keymap", .module = keymap },
-                .{ .name = "vaxis", .module = vaxis },
-            },
-        }),
-    });
-    b.step("terminal-probe", "Build the interactive terminal input probe").dependOn(&terminal_probe.step);
-    const run_terminal_probe = b.addRunArtifact(terminal_probe);
-    if (b.args) |args| run_terminal_probe.addArgs(args);
-    b.step("run-terminal-probe", "Record terminal input and keymap resolution").dependOn(&run_terminal_probe.step);
 
     const test_step = b.step("test", "Run unit and end-to-end tests");
     test_step.dependOn(&b.addRunArtifact(tests).step);

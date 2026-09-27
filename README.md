@@ -267,21 +267,18 @@ Legacy terminal protocols cannot identify every modifier combination. Extended k
 See the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) for protocol details.
 The adapter uses the event fields and matching rules supplied by libvaxis.
 
-The [terminal validation record](docs/terminal-validation.md) lists automated checks, actual input observations, limitations, and the manual procedure.
-Native CI build/test coverage and checks using libvaxis event values do not establish actual keyboard delivery in a terminal.
 The application remains responsible for file loading, event decoding, client-platform selection, and input routing.
 
 ## Development
 
 ```sh
 mise install
-zig fmt build.zig build.zig.zon src e2e tools
+zig fmt build.zig build.zig.zon src e2e
 zig build test -Doptimize=Debug
 zig build test -Doptimize=ReleaseSafe
 ```
 
 CI runs library, public API, and dependency-free consumer tests natively on macOS, Windows, and Linux in both modes.
-Run `zig build run-terminal-probe` with the arguments described in the [validation record](docs/terminal-validation.md) to inspect actual inputs.
 
 ## API documentation
 

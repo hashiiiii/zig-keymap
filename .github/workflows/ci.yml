@@ -29,10 +29,6 @@ jobs:
         run: zig build test -Doptimize=Debug
       - name: ReleaseSafe library tests
         run: zig build test -Doptimize=ReleaseSafe
-      - name: Build terminal input probe
-        run: zig build terminal-probe -Doptimize=Debug
-      - name: Build ReleaseSafe terminal input probe
-        run: zig build terminal-probe -Doptimize=ReleaseSafe
       - name: Debug dependency-free consumer
         run: |
           empty_packages="$(mktemp -d)"
@@ -49,6 +45,6 @@ jobs:
         with:
           install_args: zig
       - name: Check formatting
-        run: zig fmt --check build.zig build.zig.zon src e2e tools
+        run: zig fmt --check build.zig build.zig.zon src e2e
       - name: Build API documentation
         run: zig build docs -Doptimize=Debug
