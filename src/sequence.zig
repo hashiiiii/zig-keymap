@@ -112,7 +112,8 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
         pub fn feed(self: *Self, active_contexts: []const Context, matcher: anytype, now_ms: u64) Result {
             if (self.advance(active_contexts, now_ms) == .pending) {
                 var pending = false;
-                for (active_contexts) |context| {
+                for (active_contexts, 0..) |context, context_index| {
+                    if (std.mem.indexOfScalar(Context, active_contexts[0..context_index], context) != null) continue;
                     for (self.candidates) |*candidate| {
                         if (candidate.context != context) continue;
                         const next = candidate.next_step orelse continue;
@@ -136,7 +137,8 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
                 self.cancel();
             }
             var pending = false;
-            for (active_contexts) |context| {
+            for (active_contexts, 0..) |context, context_index| {
+                if (std.mem.indexOfScalar(Context, active_contexts[0..context_index], context) != null) continue;
                 for (self.candidates) |*candidate| {
                     if (candidate.context != context or !matcher.matches(candidate.keys[0])) continue;
                     if (candidate.keys.len == 1) {

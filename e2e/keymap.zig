@@ -112,7 +112,8 @@ test "three-step sequences restart timeouts and preserve literal space shortcuts
     var resolver = try map.sequenceResolver(testing.allocator, .{ .timeout_ms = 10 });
     defer resolver.deinit();
     try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'g' }), 0) == .pending);
-    try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'g' }), 9) == .pending);
+    // Repeating a context must not consume one event as two sequence steps.
+    try testing.expect(resolver.feed(&.{ .list, .list }, keymap.vaxisMatcher(Key{ .codepoint = 'g' }), 9) == .pending);
     try testing.expect(resolver.advance(&.{.list}, 10) == .pending);
     try testing.expectEqual(Action.command, resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'e' }), 18).action);
     try testing.expectEqual(Action.space, map.resolve(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = ' ', .mods = .{ .ctrl = true } })).?);
