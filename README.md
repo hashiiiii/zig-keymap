@@ -94,6 +94,13 @@ Do not free them separately.
 
 ### Configuration
 
+The library has no default file path.  
+The example reads `keymap.json` from the current working directory.
+
+To use another location, change `"keymap.json"` in `readFileAlloc` to a relative or absolute path.  
+Relative paths start from the current working directory.  
+For example, use `config/keymap.json` or `/path/to/keymap.json`.
+
 Save the configuration in `keymap.json`:
 
 ```json
