@@ -14,6 +14,10 @@
 //! | `Bindings.Definition` | Default bindings and context groups | Input to `Bindings.load` |
 //! | `Bindings.Default` | Default keys for one context and action | `list.move_down` assigned `Down` and `j` |
 //! | `Keyboard` | The key and modifiers to match | `Ctrl+Enter` |
+//! | `Sequence` | Successive configured key presses | `g g` |
+//! | `Bindings.SequenceResolver` | Pending input driven by events and monotonic time | Waiting for the second `g` |
+//! | `Platform` | Client platform used to expand `Mod` | `.macos` |
+//! | `DisplayStyle` | Modifier names used in shortcut labels | `.windows` |
 //! | `Key` | A character or named key, without modifiers | `j` or `Enter` |
 //! | `NamedKey` | A key identified by name | `enter`, `down`, `f1` |
 //! | `Modifiers` | Modifier flags used with a key | `ctrl = true` |
@@ -80,7 +84,7 @@ pub const Keyboard = key.Keyboard;
 pub const Sequence = @import("sequence.zig").Sequence;
 /// `Platform` selects how `Mod` resolves for a client keyboard.
 pub const Platform = key.Platform;
-/// `DisplayStyle` selects platform-friendly names for shortcut labels.
+/// `DisplayStyle` selects modifier names for shortcut labels.
 pub const DisplayStyle = key.DisplayStyle;
 /// `Diagnostic` describes a problem that `Bindings.load` finds.
 pub const Diagnostic = map.Diagnostic;

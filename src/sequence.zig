@@ -6,7 +6,7 @@ const Keyboard = @import("key.zig").Keyboard;
 pub const Sequence = struct {
     keys: []const Keyboard,
 
-    /// Equal shortcuts and shortcuts sharing a complete prefix cannot select distinct actions.
+    /// Detect equal shortcuts and complete prefixes for collision checks.
     pub fn overlaps(a: Sequence, b: Sequence) bool {
         for (a.keys[0..@min(a.keys.len, b.keys.len)], b.keys[0..@min(a.keys.len, b.keys.len)]) |ak, bk| {
             if (!ak.equivalent(bk)) return false;
@@ -122,6 +122,9 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
                             continue;
                         }
                         if (next + 1 == candidate.keys.len) {
+                            candidate.next_step = null;
+                            // A native overlap must not interrupt an earlier pending shortcut.
+                            if (pending) continue;
                             const action = candidate.action;
                             self.cancel();
                             return .{ .action = action };
