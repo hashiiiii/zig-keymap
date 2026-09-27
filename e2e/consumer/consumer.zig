@@ -3,7 +3,7 @@ const keymap = @import("keymap");
 
 test "consumer loads JSON without external dependencies" {
     // Applications using other adapters should not need to download test dependencies.
-    const Map = keymap.Keymap(enum { global }, enum { quit });
+    const Map = keymap.Bindings(enum { global }, enum { quit });
     var bindings = (try Map.load(std.testing.allocator, .{
         .defaults = &.{.{ .context = .global, .action = .quit, .keys = &.{"q"} }},
         .context_groups = &.{},

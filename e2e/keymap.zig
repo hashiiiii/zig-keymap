@@ -7,7 +7,7 @@ test "partial configuration resolves native keys and keeps modal actions exclusi
     // Partial overrides must preserve defaults, including shortcuts reused by modal actions.
     const Context = enum { global, tree, dialog };
     const Action = enum { quit, move_down, move_up, cancel };
-    const Map = keymap.Keymap(Context, Action);
+    const Map = keymap.Bindings(Context, Action);
     var map = (try Map.load(testing.allocator, .{
         .defaults = &.{
             .{ .context = .global, .action = .quit, .keys = &.{"q"} },
@@ -35,7 +35,7 @@ test "partial configuration resolves native keys and keeps modal actions exclusi
 test "empty overrides disable every alias and clear the hint" {
     // Disabling an action must remove all its shortcuts and its displayed hint.
     const Action = enum { move_down };
-    const Map = keymap.Keymap(enum { tree }, Action);
+    const Map = keymap.Bindings(enum { tree }, Action);
     var map = (try Map.load(testing.allocator, .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } }},
         .context_groups = &.{},
@@ -53,7 +53,7 @@ test "empty overrides disable every alias and clear the hint" {
 test "native matching overlaps resolve in active context order" {
     // A colon can also match Shift+semicolon, so the caller's context order must decide.
     const Action = enum { quit, move_down };
-    const Map = keymap.Keymap(enum { global, tree }, Action);
+    const Map = keymap.Bindings(enum { global, tree }, Action);
     var map = (try Map.load(testing.allocator, .{
         .defaults = &.{
             .{ .context = .global, .action = .quit, .keys = &.{":"} },
@@ -70,7 +70,7 @@ test "native matching overlaps resolve in active context order" {
 test "native matching overlaps resolve in default declaration order" {
     // Action enum order must not override the application's declared binding priority.
     const Action = enum { move_down, move_up };
-    const Map = keymap.Keymap(enum { tree }, Action);
+    const Map = keymap.Bindings(enum { tree }, Action);
     var map = (try Map.load(testing.allocator, .{
         .defaults = &.{
             .{ .context = .tree, .action = .move_up, .keys = &.{"Shift+;"} },

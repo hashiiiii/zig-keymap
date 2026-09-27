@@ -2,8 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 const Keyboard = @import("key.zig").Keyboard;
 
-/// `Diagnostic` describes a problem in the JSON configuration or keymap specification.
-/// Read `message()` for the description.
+/// `Diagnostic` describes a problem in the JSON configuration or keymap definition.\
+/// Read `message()` for the description.\
 /// For JSON syntax errors, `line` and `column` give the location when available.
 pub const Diagnostic = struct {
     /// `Kind` identifies the problem that `load` found.
@@ -21,7 +21,7 @@ pub const Diagnostic = struct {
         /// Two bindings use equivalent keys in contexts that can be active together.
         collision,
         /// The defaults repeat a context and action pair.
-        invalid_specification,
+        invalid_definition,
     };
     /// This field identifies the problem.
     kind: Kind,
@@ -34,7 +34,7 @@ pub const Diagnostic = struct {
     /// This field holds the number of message bytes in `buffer`.
     length: usize,
 
-    /// `message` returns the text stored in this diagnostic.
+    /// `message` returns the text stored in this diagnostic.\
     /// While you use the text, keep this diagnostic alive and unchanged.
     pub fn message(self: *const Diagnostic) []const u8 {
         return self.buffer[0..self.length];
@@ -48,13 +48,13 @@ pub const Diagnostic = struct {
     }
 };
 
-/// `Keymap` creates a type for the application's `Context` and `Action` enums.
-/// A binding assigns keys to a context and action.
-/// Each binding holds a list of `Keyboard` values.
-/// Use `load()` to create bindings.
-/// Use `resolve()` to select an action.
+/// `Bindings` creates a type for the application's `Context` and `Action` enums.\
+/// A binding assigns keys to a context and action.\
+/// Each binding holds a list of `Keyboard` values.\
+/// Use `load()` to create bindings.\
+/// Use `resolve()` to select an action.\
 /// Use `deinit()` to free the memory for the bindings.
-pub fn Keymap(
+pub fn Bindings(
     /// Use an enum of application contexts, such as global, list, or dialog.
     comptime Context: type,
     /// Use an enum of application actions, such as quit or move_down.
@@ -68,19 +68,19 @@ pub fn Keymap(
             context: Context,
             /// A key match selects this action.
             action: Action,
-            /// These key strings use the format that `Keyboard.parse` accepts, such as `Down` or `Ctrl+j`.
+            /// These key strings use the format that `Keyboard.parse` accepts, such as `Down` or `Ctrl+j`.\
             /// An empty slice declares an action with no default keys.
             keys: []const []const u8,
         };
-        /// `Specification` declares bindings, their defaults, and the contexts that can be active together.
-        pub const Specification = struct {
-            /// This list declares context and action pairs with their default keys.
-            /// JSON configuration can change keys only for these pairs.
+        /// `Definition` declares bindings, their defaults, and the contexts that can be active together.
+        pub const Definition = struct {
+            /// This list declares context and action pairs with their default keys.\
+            /// JSON configuration can change keys only for these pairs.\
             /// Actions missing from the JSON keep their default keys.
             defaults: []const Default,
-            /// Each group lists contexts that can be active together.
-            /// `load()` checks for key conflicts between bindings in these contexts.
-            /// It always checks for conflicts within each context.
+            /// Each group lists contexts that can be active together.\
+            /// `load()` checks for key conflicts between bindings in these contexts.\
+            /// It always checks for conflicts within each context.\
             /// Pass the current active contexts to `resolve()`.
             context_groups: []const []const Context,
         };
@@ -88,7 +88,7 @@ pub fn Keymap(
         pub const LoadResult = union(enum) {
             /// This value owns the loaded bindings. Use `deinit()` to free their memory.
             bindings: Self,
-            /// This diagnostic describes a configuration or specification problem.
+            /// This diagnostic describes a configuration or definition problem.\
             /// `load()` frees all memory for the bindings before it returns this value.
             invalid: Diagnostic,
         };
@@ -98,30 +98,30 @@ pub fn Keymap(
             context: Context,
             /// A key match selects this action.
             action: Action,
-            /// The keymap owns these parsed `Keyboard` values.
+            /// The bindings own these parsed `Keyboard` values.
             keys: []const Keyboard,
             /// This field holds the first key label, or an empty string if the action has no keys.
             hint: []const u8,
         };
 
-        /// The keymap owns this memory. `deinit()` frees it.
+        /// The bindings own this memory. `deinit()` frees it.
         arena: std.heap.ArenaAllocator,
-        /// This list stores the loaded bindings.
+        /// This list stores the loaded bindings.\
         /// Use `keys()`, `hint()`, and `resolve()` to read them.
         entries: []Entry,
 
-        /// `load` creates bindings from `specification` and optional JSON configuration.
-        /// To use the keys in `specification.defaults`, pass `null`.
-        /// A JSON array replaces the default keys for that action.
-        /// `[]` removes all keys for that action.
+        /// `load` creates bindings from `definition` and optional JSON configuration.\
+        /// To use the keys in `definition.defaults`, pass `null`.\
+        /// A JSON array replaces the default keys for that action.\
+        /// `[]` removes all keys for that action.\
         /// Actions missing from the JSON keep their default keys.
         ///
-        /// `load` returns `.invalid` for invalid configuration, invalid defaults, or key conflicts.
+        /// `load` returns `.invalid` for invalid configuration, invalid defaults, or key conflicts.\
         /// If memory allocation fails, `load` returns `error.OutOfMemory`.
         ///
-        /// The loaded bindings own their memory.
-        /// After this call, you can free the input text and specification slices.
-        pub fn load(allocator: std.mem.Allocator, specification: Specification, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
+        /// The loaded bindings own their memory.\
+        /// After this call, you can free the input text and definition slices.
+        pub fn load(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
             var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
             defer if (!retained) arena.deinit();
@@ -150,14 +150,14 @@ pub fn Keymap(
                 for (object.keys(), object.values()) |context_name, context_value| {
                     const context = std.meta.stringToEnum(Context, context_name) orelse return .{ .invalid = Diagnostic.init(.unknown_context, "Unknown context '{s}'", .{context_name}) };
                     var known = false;
-                    for (specification.defaults) |binding| {
+                    for (definition.defaults) |binding| {
                         if (binding.context == context) known = true;
                     }
                     if (!known) return .{ .invalid = Diagnostic.init(.unknown_context, "Unknown context '{s}'", .{context_name}) };
                     if (context_value != .object) return .{ .invalid = Diagnostic.init(.invalid_type, "Context '{s}' must be an object", .{context_name}) };
                     for (context_value.object.keys(), context_value.object.values()) |action_name, value| {
                         var allowed = false;
-                        for (specification.defaults) |binding| {
+                        for (definition.defaults) |binding| {
                             if (binding.context == context and std.mem.eql(u8, @tagName(binding.action), action_name)) allowed = true;
                         }
                         if (!allowed) return .{ .invalid = Diagnostic.init(.unknown_action, "Unknown action '{s}.{s}'", .{ context_name, action_name }) };
@@ -168,10 +168,10 @@ pub fn Keymap(
                     }
                 }
             }
-            const entries = try storage.alloc(Entry, specification.defaults.len);
-            for (specification.defaults, 0..) |binding, index| {
-                for (specification.defaults[0..index]) |previous| {
-                    if (previous.context == binding.context and previous.action == binding.action) return .{ .invalid = Diagnostic.init(.invalid_specification, "Duplicate default '{s}.{s}'", .{ @tagName(binding.context), @tagName(binding.action) }) };
+            const entries = try storage.alloc(Entry, definition.defaults.len);
+            for (definition.defaults, 0..) |binding, index| {
+                for (definition.defaults[0..index]) |previous| {
+                    if (previous.context == binding.context and previous.action == binding.action) return .{ .invalid = Diagnostic.init(.invalid_definition, "Duplicate default '{s}.{s}'", .{ @tagName(binding.context), @tagName(binding.action) }) };
                 }
                 const override = if (root) |object| blk: {
                     const context = object.get(@tagName(binding.context)) orelse break :blk null;
@@ -188,7 +188,7 @@ pub fn Keymap(
             }
             for (entries, 0..) |a, index| {
                 for (entries[index + 1 ..]) |b| {
-                    if (!canOverlap(specification.context_groups, a.context, b.context)) continue;
+                    if (!canOverlap(definition.context_groups, a.context, b.context)) continue;
                     for (a.keys) |ak| {
                         for (b.keys) |bk| {
                             if (ak.equivalent(bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
@@ -214,10 +214,10 @@ pub fn Keymap(
             return false;
         }
 
-        /// `resolve` returns the first matching action, or `null` if no binding matches.
-        /// Pass the current active contexts in `active_contexts`.
-        /// `resolve` checks contexts in that order, then bindings in the order of `specification.defaults`.
-        /// A matcher must provide `matches(Keyboard) bool`.
+        /// `resolve` returns the first matching action, or `null` if no binding matches.\
+        /// Pass the current active contexts in `active_contexts`.\
+        /// `resolve` checks contexts in that order, then bindings in the order of `definition.defaults`.\
+        /// A matcher must provide `matches(Keyboard) bool`.\
         /// For libvaxis keys, use `vaxisMatcher`.
         pub fn resolve(self: *const Self, active_contexts: []const Context, matcher: anytype) ?Action {
             for (active_contexts) |context| {
@@ -231,8 +231,8 @@ pub fn Keymap(
             return null;
         }
 
-        /// `keys` returns the configured `Keyboard` values, or an empty slice if the action has no keys.
-        /// The keymap owns the result. It remains valid until `deinit()`.
+        /// `keys` returns the configured `Keyboard` values, or an empty slice if the action has no keys.\
+        /// The bindings own the result. It remains valid until `deinit()`.\
         /// Do not free it separately.
         pub fn keys(self: *const Self, context: Context, action: Action) []const Keyboard {
             for (self.entries) |entry| {
@@ -241,8 +241,8 @@ pub fn Keymap(
             return &.{};
         }
 
-        /// `hint` returns the first configured key as a label, or an empty string if the action has no keys.
-        /// The keymap owns the result. It remains valid until `deinit()`.
+        /// `hint` returns the first configured key as a label, or an empty string if the action has no keys.\
+        /// The bindings own the result. It remains valid until `deinit()`.\
         /// Do not free it separately.
         pub fn hint(self: *const Self, context: Context, action: Action) []const u8 {
             for (self.entries) |entry| {
@@ -251,7 +251,7 @@ pub fn Keymap(
             return "";
         }
 
-        /// `deinit` frees all memory that this keymap owns.
+        /// `deinit` frees all memory that these bindings own.\
         /// After this call, do not use the results from `keys()` or `hint()`.
         pub fn deinit(self: *Self) void {
             self.arena.deinit();
@@ -262,7 +262,7 @@ pub fn Keymap(
 
 test "load uses default aliases and the first key as the hint" {
     // Applications need every default alias, even though hints show only the first key.
-    const Map = Keymap(enum { tree }, enum { move_down, move_up });
+    const Map = Bindings(enum { tree }, enum { move_down, move_up });
     var map = (try Map.load(testing.allocator, .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } }},
         .context_groups = &.{},
@@ -279,50 +279,50 @@ test "load uses default aliases and the first key as the hint" {
 
 test "load rejects unknown contexts and actions" {
     // Misspelled or misplaced actions must not silently fall back to defaults.
-    const Map = Keymap(enum { tree, dialog }, enum { move_down, cancel });
-    const specification: Map.Specification = .{
+    const Map = Bindings(enum { tree, dialog }, enum { move_down, cancel });
+    const definition: Map.Definition = .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
         .context_groups = &.{},
     };
-    const context = (try Map.load(testing.allocator, specification,
+    const context = (try Map.load(testing.allocator, definition,
         \\{"unknown": {"move_down": []}}
     )).invalid;
     try testing.expectEqual(Diagnostic.Kind.unknown_context, context.kind);
     try testing.expectEqualStrings("Unknown context 'unknown'", context.message());
-    try testing.expectEqual(Diagnostic.Kind.unknown_context, (try Map.load(testing.allocator, specification,
+    try testing.expectEqual(Diagnostic.Kind.unknown_context, (try Map.load(testing.allocator, definition,
         \\{"dialog": {"cancel": []}}
     )).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, specification,
+    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, definition,
         \\{"tree": {"unknown_action": []}}
     )).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, specification,
+    try testing.expectEqual(Diagnostic.Kind.unknown_action, (try Map.load(testing.allocator, definition,
         \\{"tree": {"cancel": []}}
     )).invalid.kind);
 }
 
 test "load requires context objects and arrays of strings" {
     // Valid JSON can still have a shape that cannot describe key bindings.
-    const Map = Keymap(enum { tree }, enum { move_down });
-    const specification: Map.Specification = .{
+    const Map = Bindings(enum { tree }, enum { move_down });
+    const definition: Map.Definition = .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
         .context_groups = &.{},
     };
-    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "null")).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification, "[]")).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification,
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, definition, "null")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, definition, "[]")).invalid.kind);
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, definition,
         \\{"tree": 1}
     )).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification,
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, definition,
         \\{"tree": {"move_down": 1}}
     )).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, specification,
+    try testing.expectEqual(Diagnostic.Kind.invalid_type, (try Map.load(testing.allocator, definition,
         \\{"tree": {"move_down": [1]}}
     )).invalid.kind);
 }
 
 test "load rejects invalid default and override keys" {
     // Both application defaults and user overrides must pass key validation.
-    const Map = Keymap(enum { tree }, enum { move_down });
+    const Map = Bindings(enum { tree }, enum { move_down });
     try testing.expectEqual(Diagnostic.Kind.invalid_key, (try Map.load(testing.allocator, .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"Unknown+j"} }},
         .context_groups = &.{},
@@ -337,12 +337,12 @@ test "load rejects invalid default and override keys" {
 
 test "load reports JSON syntax locations and rejects duplicate fields" {
     // Syntax diagnostics must identify where users can fix their configuration.
-    const Map = Keymap(enum { tree }, enum { move_down });
-    const specification: Map.Specification = .{
+    const Map = Bindings(enum { tree }, enum { move_down });
+    const definition: Map.Definition = .{
         .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{"j"} }},
         .context_groups = &.{},
     };
-    const syntax = (try Map.load(testing.allocator, specification,
+    const syntax = (try Map.load(testing.allocator, definition,
         \\{
         \\"tree": ?
         \\}
@@ -351,18 +351,18 @@ test "load reports JSON syntax locations and rejects duplicate fields" {
     try testing.expectEqual(@as(?u32, 2), syntax.line);
     try testing.expectEqual(@as(?u32, 9), syntax.column);
     try testing.expectEqualStrings("Invalid JSON: SyntaxError", syntax.message());
-    try testing.expectEqual(Diagnostic.Kind.syntax, (try Map.load(testing.allocator, specification,
+    try testing.expectEqual(Diagnostic.Kind.syntax, (try Map.load(testing.allocator, definition,
         \\{"tree": {}, "tree": {}}
     )).invalid.kind);
-    try testing.expectEqual(Diagnostic.Kind.syntax, (try Map.load(testing.allocator, specification,
+    try testing.expectEqual(Diagnostic.Kind.syntax, (try Map.load(testing.allocator, definition,
         \\{"tree": {"move_down": [], "move_down": []}}
     )).invalid.kind);
 }
 
 test "load rejects duplicate default actions" {
     // Duplicate actions make override and hint selection ambiguous.
-    const Map = Keymap(enum { tree }, enum { move_down });
-    try testing.expectEqual(Diagnostic.Kind.invalid_specification, (try Map.load(testing.allocator, .{
+    const Map = Bindings(enum { tree }, enum { move_down });
+    try testing.expectEqual(Diagnostic.Kind.invalid_definition, (try Map.load(testing.allocator, .{
         .defaults = &.{
             .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
             .{ .context = .tree, .action = .move_down, .keys = &.{"Down"} },
@@ -373,7 +373,7 @@ test "load rejects duplicate default actions" {
 
 test "load rejects collisions within a context" {
     // One key must not select two actions in the same context.
-    const Map = Keymap(enum { tree }, enum { move_down, move_up });
+    const Map = Bindings(enum { tree }, enum { move_down, move_up });
     try testing.expectEqual(Diagnostic.Kind.collision, (try Map.load(testing.allocator, .{
         .defaults = &.{
             .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
@@ -387,7 +387,7 @@ test "load rejects collisions within a context" {
 
 test "load rejects collisions across context groups" {
     // Global shortcuts must not shadow navigation in a declared active group.
-    const Map = Keymap(enum { global, tree }, enum { quit, move_down });
+    const Map = Bindings(enum { global, tree }, enum { quit, move_down });
     const collision = (try Map.load(testing.allocator, .{
         .defaults = &.{
             .{ .context = .global, .action = .quit, .keys = &.{"q"} },
@@ -403,7 +403,7 @@ test "load rejects collisions across context groups" {
 
 test "load rejects equivalent ASCII Shift bindings" {
     // Alternate spellings must not evade collision validation.
-    const Map = Keymap(enum { tree }, enum { move_down, move_up });
+    const Map = Bindings(enum { tree }, enum { move_down, move_up });
     try testing.expectEqual(Diagnostic.Kind.collision, (try Map.load(testing.allocator, .{
         .defaults = &.{
             .{ .context = .tree, .action = .move_down, .keys = &.{"Shift+j"} },
@@ -415,7 +415,7 @@ test "load rejects equivalent ASCII Shift bindings" {
 
 test "load owns bindings after the input is freed" {
     // Applications can release configuration text immediately after loading.
-    const Map = Keymap(enum { tree }, enum { move_down });
+    const Map = Bindings(enum { tree }, enum { move_down });
     var map = blk: {
         const text = try testing.allocator.dupe(u8,
             \\{"tree": {"move_down": ["Ctrl+\u006e", "j"]}}

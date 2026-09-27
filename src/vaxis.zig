@@ -1,7 +1,7 @@
 const Keyboard = @import("key.zig").Keyboard;
 
-/// `vaxisMatcher` creates a matcher for a libvaxis key event.
-/// Pass the matcher to `Keymap.resolve`.
+/// `vaxisMatcher` creates a matcher for a libvaxis key event.\
+/// Pass the matcher to `Bindings.resolve`.\
 /// It uses libvaxis rules to match characters, named keys, and modifiers.
 pub fn vaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {
     return .{ .key = key };

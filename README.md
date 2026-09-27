@@ -30,7 +30,7 @@ In `build.zig`, import the `keymap` module:
 
 ## Usage
 
-A context is a view or mode. Define contexts, actions, and their default keys.  
+A context identifies where bindings apply. Define contexts, actions, and their default keys.  
 Provide `allocator`, `io` (`std.Io`), and a [libvaxis](https://github.com/rockorager/libvaxis) key event named `key`:
 
 ```zig
@@ -38,9 +38,9 @@ const std = @import("std");
 const keymap = @import("keymap");
 const Context = enum { global, list, dialog };
 const Action = enum { quit, move_down, cancel };
-const Bindings = keymap.Keymap(Context, Action);
+const Bindings = keymap.Bindings(Context, Action);
 
-const specification: Bindings.Specification = .{
+const definition: Bindings.Definition = .{
     .defaults = &.{
         .{ .context = .global, .action = .quit, .keys = &.{"q"} },
         .{ .context = .list, .action = .move_down, .keys = &.{ "Down", "j" } },
@@ -52,7 +52,7 @@ const specification: Bindings.Specification = .{
 const keymap_json = try std.Io.Dir.cwd().readFileAlloc(io, "keymap.json", allocator, .unlimited);
 defer allocator.free(keymap_json);
 
-const loaded = try Bindings.load(allocator, specification, keymap_json);
+const loaded = try Bindings.load(allocator, definition, keymap_json);
 var bindings = switch (loaded) {
     .bindings => |value| value,
     .invalid => |diagnostic| {
@@ -70,15 +70,28 @@ const label = bindings.hint(.global, .quit);
 `load` checks for conflicts within each context and group.
 
 `resolve` returns the first matching action, or `null` if none match.  
-It checks active contexts in order, then bindings in `specification.defaults` order.
+It checks active contexts in order, then bindings in `definition.defaults` order.
 
 `hint` returns the first key label, or an empty string. `keys` returns configured `Keyboard` values.  
 Both results remain valid until `bindings.deinit()`. Do not free them separately.
 
 ### Configuration
 
-The library has no default file path. This example reads `keymap.json` from the current working directory.  
-For another location, pass `config/keymap.json` (relative to that directory) or `/path/to/keymap.json` (absolute) to `readFileAlloc`.
+The library has no default file path. The example above reads `keymap.json` from the current working directory.
+
+Pass a path relative to that directory:
+
+```zig
+const keymap_json = try std.Io.Dir.cwd().readFileAlloc(io, "config/keymap.json", allocator, .unlimited);
+defer allocator.free(keymap_json);
+```
+
+Pass an absolute path:
+
+```zig
+const keymap_json = try std.Io.Dir.cwd().readFileAlloc(io, "/path/to/keymap.json", allocator, .unlimited);
+defer allocator.free(keymap_json);
+```
 
 Use this JSON in `keymap.json`:
 
@@ -90,7 +103,7 @@ Use this JSON in `keymap.json`:
 }
 ```
 
-`load` parses the JSON text. To use `specification.defaults`, pass `null`.
+`load` parses the JSON text. To use `definition.defaults`, pass `null`.
 
 | JSON | Keys |
 | --- | --- |

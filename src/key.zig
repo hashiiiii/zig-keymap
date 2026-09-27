@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-/// `NamedKey` represents a key identified by name, such as `Enter`, `Down`, or `F1`.
-/// The `named` variant of `Key` holds this value.
+/// `NamedKey` represents a key identified by name, such as `Enter`, `Down`, or `F1`.\
+/// The `named` variant of `Key` holds this value.\
 /// `label()` returns the spelling that `Keyboard.parse` accepts.
 pub const NamedKey = enum {
     /// This value represents the Up arrow key.
@@ -60,7 +60,7 @@ pub const NamedKey = enum {
     /// This value represents the F12 function key.
     f12,
 
-    /// `label` returns the standard key name, such as `PageDown`.
+    /// `label` returns the standard key name, such as `PageDown`.\
     /// The text uses static storage. Do not free it.
     pub fn label(self: NamedKey) []const u8 {
         return switch (self) {
@@ -95,7 +95,7 @@ pub const NamedKey = enum {
     }
 };
 
-/// `Modifiers` holds the modifier flags for a `Keyboard` value.
+/// `Modifiers` holds the modifier flags for a `Keyboard` value.\
 /// All flags default to `false`. `Ctrl+Enter` sets only `ctrl`.
 pub const Modifiers = packed struct {
     /// Set to `true` to include the Shift modifier.
@@ -112,19 +112,19 @@ pub const Modifiers = packed struct {
     hyper: bool = false,
 };
 
-/// `Key` represents one character or named key, without modifiers.
+/// `Key` represents one character or named key, without modifiers.\
 /// `Keyboard` combines this value with `Modifiers` to describe keys such as `Ctrl+Enter`.
 pub const Key = union(enum) {
-    /// This value holds a Unicode codepoint, such as `'j'` or `'あ'`.
-    /// A codepoint is a number that identifies a character.
+    /// This value holds a Unicode codepoint, such as `'j'` or `'あ'`.\
+    /// A codepoint is a number that identifies a character.\
     /// Use a value that UTF-8 can encode.
     character: u21,
     /// This value holds a named key, such as `.enter` or `.down`.
     named: NamedKey,
 };
 
-/// `Keyboard` describes the key and modifiers to match.
-/// For `Ctrl+Enter`, `key` is `.{ .named = .enter }` and `modifiers.ctrl` is `true`.
+/// `Keyboard` describes the key and modifiers to match.\
+/// For `Ctrl+Enter`, `key` is `.{ .named = .enter }` and `modifiers.ctrl` is `true`.\
 /// A matcher compares incoming events from the terminal library with this value.
 pub const Keyboard = struct {
     /// This field holds the character or named key to match.
@@ -132,9 +132,9 @@ pub const Keyboard = struct {
     /// These flags specify the modifiers to match.
     modifiers: Modifiers = .{},
 
-    /// `parse` reads a key string, such as `j`, `Ctrl+Enter`, or `Ctrl++`.
-    /// Key names and modifier names ignore case.
-    /// Character keys keep their case and must contain exactly one Unicode codepoint.
+    /// `parse` reads a key string, such as `j`, `Ctrl+Enter`, or `Ctrl++`.\
+    /// Key names and modifier names ignore case.\
+    /// Character keys keep their case and must contain exactly one Unicode codepoint.\
     /// `parse` returns `error.InvalidKey` for invalid UTF-8, unknown names, duplicate modifiers, or malformed strings.
     pub fn parse(text: []const u8) error{InvalidKey}!Keyboard {
         var remaining = text;
@@ -163,10 +163,10 @@ pub const Keyboard = struct {
         return .{ .key = .{ .character = character }, .modifiers = modifiers };
     }
 
-    /// `format` writes a key label into `buffer` with standard key names and modifier names.
-    /// Modifiers appear in this order: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.
-    /// Character keys keep their case.
-    /// The result refers to `buffer`.
+    /// `format` writes a key label into `buffer` with standard key names and modifier names.\
+    /// Modifiers appear in this order: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
+    /// Character keys keep their case.\
+    /// The result refers to `buffer`.\
     /// While you use the result, keep `buffer` alive and unchanged.
     pub fn format(self: Keyboard, buffer: *[96]u8) []const u8 {
         var end: usize = 0;
@@ -187,8 +187,8 @@ pub const Keyboard = struct {
         return buffer[0..end];
     }
 
-    /// `equivalent` returns `true` if two `Keyboard` values are equal for key conflict checks.
-    /// ASCII uppercase letters equal lowercase letters with `Shift`. For example, `J` equals `Shift+j`.
+    /// `equivalent` returns `true` if two `Keyboard` values are equal for key conflict checks.\
+    /// ASCII uppercase letters equal lowercase letters with `Shift`. For example, `J` equals `Shift+j`.\
     /// These named keys equal their character values:
     ///
     /// | Named key | Character |
