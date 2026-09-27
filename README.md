@@ -275,7 +275,7 @@ The application remains responsible for file loading, event decoding, client-pla
 
 ```sh
 mise install
-zig fmt build.zig build.zig.zon src e2e
+zig fmt build.zig build.zig.zon src e2e tools
 zig build test -Doptimize=Debug
 zig build test -Doptimize=ReleaseSafe
 ```

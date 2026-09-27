@@ -52,7 +52,7 @@ The repository test suite checks the adapter with libvaxis key values, including
 
 GitHub Actions runs Debug and ReleaseSafe library tests and dependency-free consumer checks on native Linux, macOS, and Windows runners. Those checks establish build and public API behavior; they do not establish that a terminal delivers a particular key.
 
-Host metadata collected separately from the probe: macOS 27.0 build 26A428, Ghostty 1.3.1, `TERM_PROGRAM=ghostty`, `TERM=xterm-256color`, and active input source `com.apple.keylayout.ABC`. The physical keyboard layout and terminal-delivered key events were not recorded. The computer-use safety review rejected opening Ghostty for this probe, so no physical input was collected here.
+Host metadata collected separately from the probe: macOS 27.0 build 26A428, Ghostty 1.3.1, `TERM_PROGRAM=ghostty`, `TERM=xterm-256color`, and active input source `com.apple.keylayout.ABC`. The physical keyboard layout and terminal-delivered key events were not recorded.
 
 No physical terminal input results are recorded yet. Add a row only after running the probe with physical input and retaining the complete JSON record and environment details.
 
