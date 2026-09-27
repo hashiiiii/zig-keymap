@@ -119,6 +119,34 @@ test "three-step sequences restart timeouts and preserve literal space shortcuts
     try testing.expectEqual(Action.space, map.resolve(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = ' ', .mods = .{ .ctrl = true } })).?);
 }
 
+test "sequence steps expand Mod and aliases for each selected platform" {
+    // Platform expansion must apply to every shortcut step in defaults and overrides.
+    const Action = enum { next };
+    const Map = keymap.Bindings(enum { list }, Action);
+    const definition: Map.Definition = .{
+        .defaults = &.{.{ .context = .list, .action = .next, .keys = &.{"Mod+Option+b n"} }},
+        .context_groups = &.{},
+    };
+    var mac = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .macos, .display_style = .macos })).bindings;
+    defer mac.deinit();
+    try testing.expectEqualStrings("Option+Command+b n", mac.hint(.list, .next));
+    var resolver = try mac.sequenceResolver(testing.allocator, .{ .timeout_ms = null });
+    defer resolver.deinit();
+    try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'b', .mods = .{ .alt = true, .super = true } }), 0) == .pending);
+    try testing.expect(resolver.advance(&.{.list}, 100000) == .pending);
+    try testing.expectEqual(Action.next, resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'n' }), 100001).action);
+    var windows = (try Map.loadWithOptions(testing.allocator, definition,
+        \\{"list":{"next":["Mod+Opt+b n"]}}
+    , .{ .platform = .windows, .display_style = .windows })).bindings;
+    defer windows.deinit();
+    try testing.expectEqualStrings("Ctrl+Alt+b n", windows.hint(.list, .next));
+    try testing.expectEqual(keymap.Keyboard{ .key = .{ .character = 'b' }, .modifiers = .{ .ctrl = true, .alt = true } }, windows.sequences(.list, .next)[0].keys[0]);
+    var linux = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .linux, .display_style = .common })).bindings;
+    defer linux.deinit();
+    try testing.expectEqualStrings("Ctrl+Alt+b n", linux.hint(.list, .next));
+    try testing.expectEqual(keymap.Keyboard{ .key = .{ .character = 'b' }, .modifiers = .{ .ctrl = true, .alt = true } }, linux.sequences(.list, .next)[0].keys[0]);
+}
+
 test "partial configuration resolves native keys and keeps modal actions exclusive" {
     // Partial overrides must preserve defaults, including shortcuts reused by modal actions.
     const Context = enum { global, tree, dialog };
