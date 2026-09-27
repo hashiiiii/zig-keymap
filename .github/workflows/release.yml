@@ -8,8 +8,8 @@ on:
         required: true
 
 permissions:
-  actions: write
-  contents: write
+  actions: read
+  contents: read
 
 concurrency:
   group: release
@@ -20,7 +20,14 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
     steps:
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
       - uses: jdx/mise-action@v4
         with:
           install_args: pipx:bump-my-version
@@ -49,9 +56,13 @@ jobs:
         run: bump-my-version bump --new-version "$VERSION"
       - name: Commit version bump
         if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
           git add build.zig.zon README.md .bumpversion.toml
           git commit -m "chore: release v$VERSION"
       - name: Tag and push
@@ -60,17 +71,9 @@ jobs:
           git push --atomic origin HEAD:main "v$VERSION"
       - name: Create release
         uses: actions/github-script@v9
-        env:
-          VERSION_CHANGED: ${{ steps.version.outputs.changed }}
         with:
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            if (process.env.VERSION_CHANGED === 'true') {
-              await github.rest.actions.createWorkflowDispatch({
-                ...context.repo,
-                workflow_id: 'ci.yml',
-                ref: 'main',
-              });
-            }
             await github.rest.repos.createRelease({
               ...context.repo,
               tag_name: `v${process.env.VERSION}`,
