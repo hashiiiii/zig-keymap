@@ -1,67 +1,66 @@
 const std = @import("std");
 const testing = std.testing;
 
-/// `NamedKey` represents a key identified by name, such as `Enter`, `Down`, or `F1`.\
-/// The `named` variant of `Key` holds this value.\
-/// `label()` returns the spelling that `Keyboard.parse` accepts.
+/// Names accepted by `Keyboard.parse`.\
+/// `label` returns that spelling.
 pub const NamedKey = enum {
-    /// This value represents the Up arrow key.
+    /// Written `Up`.
     up,
-    /// This value represents the Down arrow key.
+    /// Written `Down`.
     down,
-    /// This value represents the Left arrow key.
+    /// Written `Left`.
     left,
-    /// This value represents the Right arrow key.
+    /// Written `Right`.
     right,
-    /// This value represents the Enter key.
+    /// Written `Enter`.
     enter,
-    /// This value represents the Escape key.
+    /// Written `Escape`.
     escape,
-    /// This value represents the Tab key.
+    /// Written `Tab`.
     tab,
-    /// This value represents the Backspace key.
+    /// Written `Backspace`.
     backspace,
-    /// This value represents the Delete key.
+    /// Written `Delete`.
     delete,
-    /// This value represents the Home key.
+    /// Written `Home`.
     home,
-    /// This value represents the End key.
+    /// Written `End`.
     end,
-    /// This value represents the Page Up key. Use `PageUp` in configuration.
+    /// Written `PageUp`.
     page_up,
-    /// This value represents the Page Down key. Use `PageDown` in configuration.
+    /// Written `PageDown`.
     page_down,
-    /// This value represents the Insert key.
+    /// Written `Insert`.
     insert,
-    /// This value represents the Space bar.
+    /// Written `Space`.
     space,
-    /// This value represents the F1 function key.
+    /// Written `F1`.
     f1,
-    /// This value represents the F2 function key.
+    /// Written `F2`.
     f2,
-    /// This value represents the F3 function key.
+    /// Written `F3`.
     f3,
-    /// This value represents the F4 function key.
+    /// Written `F4`.
     f4,
-    /// This value represents the F5 function key.
+    /// Written `F5`.
     f5,
-    /// This value represents the F6 function key.
+    /// Written `F6`.
     f6,
-    /// This value represents the F7 function key.
+    /// Written `F7`.
     f7,
-    /// This value represents the F8 function key.
+    /// Written `F8`.
     f8,
-    /// This value represents the F9 function key.
+    /// Written `F9`.
     f9,
-    /// This value represents the F10 function key.
+    /// Written `F10`.
     f10,
-    /// This value represents the F11 function key.
+    /// Written `F11`.
     f11,
-    /// This value represents the F12 function key.
+    /// Written `F12`.
     f12,
 
-    /// `label` returns the standard key name, such as `PageDown`.\
-    /// The text uses static storage. Do not free it.
+    /// Returns the spelling `Keyboard.parse` accepts.\
+    /// The text is static.
     pub fn label(self: NamedKey) []const u8 {
         return switch (self) {
             .up => "Up",
@@ -95,83 +94,78 @@ pub const NamedKey = enum {
     }
 };
 
-/// `Modifiers` holds the modifier flags for a `Keyboard` value.\
-/// All flags default to `false`. `Ctrl+Enter` sets only `ctrl`.
+/// Modifier flags matched with a `Key`.
 pub const Modifiers = packed struct {
-    /// Set to `true` to include the Shift modifier.
+    /// Include Shift.
     shift: bool = false,
-    /// Set to `true` to include the Ctrl modifier.
+    /// Include Ctrl.
     ctrl: bool = false,
-    /// Set to `true` to include the Alt modifier.
+    /// Include Alt.
     alt: bool = false,
-    /// Set to `true` to include the Super modifier.
+    /// Include Super.
     super: bool = false,
-    /// Set to `true` to include the Meta modifier.
+    /// Include Meta.
     meta: bool = false,
-    /// Set to `true` to include the Hyper modifier.
+    /// Include Hyper.
     hyper: bool = false,
 };
 
-/// `Platform` selects which concrete modifier the portable `Mod` name uses.
-/// The application chooses the platform of the client keyboard, which may differ from the build target.
+/// Chooses the concrete modifier for `Mod`.\
+/// Use the client keyboard's platform, which can differ from the build target.
 pub const Platform = enum {
-    /// Resolve `Mod` to `Super` for a macOS client.
+    /// `Mod` resolves to `Super`.
     macos,
-    /// Resolve `Mod` to `Ctrl` for a Windows client.
+    /// `Mod` resolves to `Ctrl`.
     windows,
-    /// Resolve `Mod` to `Ctrl` for a Linux client.
+    /// `Mod` resolves to `Ctrl`.
     linux,
 };
 
-/// `DisplayStyle` selects platform-friendly modifier names for shortcut labels.
-/// It changes labels only; it does not change matching or collision behavior.
+/// Modifier names used in shortcut labels.\
+/// Matching and collision checks stay the same.
 pub const DisplayStyle = enum {
-    /// Display `Ctrl`, `Alt`, `Shift`, and `Super` on every platform.
+    /// `Ctrl`, `Alt`, `Shift`, and `Super`.
     common,
-    /// Display `Option` for Alt and `Command` for Super.
+    /// `Option` for Alt and `Command` for Super.
     macos,
-    /// Display `Alt` for Alt and `Win` for Super.
+    /// `Alt` for Alt and `Win` for Super.
     windows,
-    /// Display `Alt` for Alt and `Super` for Super.
+    /// `Alt` for Alt and `Super` for Super.
     linux,
 };
 
-/// `Key` represents one character or named key, without modifiers.\
-/// `Keyboard` combines this value with `Modifiers` to describe keys such as `Ctrl+Enter`.
+/// One character or named key, without modifiers.
 pub const Key = union(enum) {
-    /// This value holds a Unicode codepoint, such as `'j'` or `'あ'`.\
-    /// A codepoint is a number that identifies a character.\
-    /// Use a value that UTF-8 can encode.
+    /// One Unicode scalar, such as `'j'` or `'あ'`.\
+    /// The value must be encodable as UTF-8.
     character: u21,
-    /// This value holds a named key, such as `.enter` or `.down`.
+    /// A named key, such as `.enter`.
     named: NamedKey,
 };
 
-/// `Keyboard` describes the key and modifiers to match.\
-/// For `Ctrl+Enter`, `key` is `.{ .named = .enter }` and `modifiers.ctrl` is `true`.\
-/// A matcher compares incoming events from the terminal library with this value.
+/// A key and the modifiers to match.\
+/// For `Ctrl+Enter`, `key` is `.{ .named = .enter }` and `modifiers.ctrl` is `true`.
 pub const Keyboard = struct {
-    /// This field holds the character or named key to match.
+    /// Character or named key to match.
     key: Key,
-    /// These flags specify the modifiers to match.
+    /// Modifiers that must match with `key`.
     modifiers: Modifiers = .{},
 
-    /// `parse` reads a key string, such as `j`, `Ctrl+Enter`, or `Ctrl++`.\
+    /// Parses `j`, `Ctrl+Enter`, or `Ctrl++`.\
     /// Key names and modifier names ignore case.\
-    /// Modifiers accept `Shift`, `Ctrl` (`Control`), `Alt` (`Option`, `Opt`),\
-    /// `Super` (`Command`, `Cmd`, `Win`, `Windows`), `Meta`, and `Hyper`.\
-    /// Use `parseForPlatform` to parse the portable `Mod` modifier.\
-    /// Aliases set the same flags as canonical names and count as duplicates when repeated.\
-    /// Character keys keep their case and must contain exactly one Unicode codepoint.\
-    /// `parse` returns `error.InvalidKey` for invalid UTF-8, unknown names, duplicate modifiers, or malformed strings.
+    /// Character keys keep their case and contain one Unicode scalar.\
+    /// Modifiers accept `Shift`, `Ctrl` (`Control`), `Alt` (`Option`, `Opt`), `Super` (`Command`, `Cmd`, `Win`, `Windows`), `Meta`, and `Hyper`.\
+    /// Aliases set the same flags and count as duplicates when repeated.\
+    /// `Mod` requires `parseForPlatform`.\
+    /// Returns `error.InvalidKey` for invalid UTF-8, unknown names, duplicate modifiers, or malformed strings.
     pub fn parse(text: []const u8) error{InvalidKey}!Keyboard {
         return parseText(text, null);
     }
 
-    /// `parseForPlatform` reads a key string and resolves `Mod` for `platform`.\
-    /// `Mod` resolves to `Super` on macOS and `Ctrl` on Windows and Linux.\
-    /// Other modifier names retain their concrete meaning on every platform.\
-    /// Choose the platform of the client keyboard; the build target may be different.
+    /// Parses a key string and resolves `Mod` for `platform`.\
+    /// `Mod` becomes `Super` on macOS and `Ctrl` on Windows and Linux.\
+    /// `Ctrl`, `Alt`, and `Super` keep their meaning on every platform.\
+    /// `platform` is the client keyboard described by `Platform`.
     pub fn parseForPlatform(text: []const u8, platform: Platform) error{InvalidKey}!Keyboard {
         return parseText(text, platform);
     }
@@ -214,20 +208,21 @@ pub const Keyboard = struct {
         return .{ .key = .{ .character = character }, .modifiers = modifiers };
     }
 
-    /// `format` writes a key label into `buffer` with common key and modifier names.\
-    /// Modifiers appear in this order: `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
+    /// Writes a label using common modifier names.\
+    /// The order is `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
     /// Character keys keep their case.\
     /// The result refers to `buffer`.\
-    /// While you use the result, keep `buffer` alive and unchanged.
+    /// Keep `buffer` alive and unchanged while using the result.
     pub fn format(self: Keyboard, buffer: *[96]u8) []const u8 {
         return self.formatWithStyle(buffer, .common);
     }
 
-    /// `formatWithStyle` writes a key label into `buffer` using `style` modifier names.\
-    /// Modifiers keep the order `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
-    /// Character keys keep their case, and a literal plus remains the final key character.\
-    /// Formatting does not change the key or modifier flags.\
-    /// The result refers to `buffer`; keep it alive and unchanged while using the result.
+    /// Writes a label using `style` modifier names.\
+    /// The order is `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
+    /// Character keys keep their case.\
+    /// A literal plus stays the final character.\
+    /// The result refers to `buffer`.\
+    /// Keep `buffer` alive and unchanged while using the result.
     pub fn formatWithStyle(self: Keyboard, buffer: *[96]u8, style: DisplayStyle) []const u8 {
         const labels = switch (style) {
             .common => .{ "Ctrl+", "Alt+", "Shift+", "Super+", "Meta+", "Hyper+" },
@@ -253,8 +248,9 @@ pub const Keyboard = struct {
         return buffer[0..end];
     }
 
-    /// `equivalent` returns `true` if two `Keyboard` values are equal for key conflict checks.\
-    /// ASCII uppercase letters equal lowercase letters with `Shift`. For example, `J` equals `Shift+j`.\
+    /// Reports whether two values collide as the same shortcut.\
+    /// ASCII uppercase equals the lowercase letter with `Shift`.\
+    /// `J` equals `Shift+j`.\
     /// These named keys equal their character values:
     ///
     /// | Named key | Character |
@@ -265,7 +261,7 @@ pub const Keyboard = struct {
     /// | `Escape` | `\x1b` |
     /// | `Backspace` | `\x7f` |
     ///
-    /// Terminal matchers compare incoming events with their own rules.
+    /// Terminal matchers use their own comparison rules.
     pub fn equivalent(a: Keyboard, b: Keyboard) bool {
         return std.meta.eql(a.normalized(), b.normalized());
     }

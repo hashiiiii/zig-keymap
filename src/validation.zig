@@ -4,8 +4,8 @@ const Keyboard = key_module.Keyboard;
 const Platform = key_module.Platform;
 const sequence = @import("sequence.zig");
 
-/// `canOverlap` reports whether `a` and `b` can be active at the same time.
-/// Contexts always overlap themselves, even when no group names them.
+/// True when `a` and `b` can be active together.\
+/// A context always overlaps itself.
 pub fn canOverlap(comptime Context: type, groups: []const []const Context, a: Context, b: Context) bool {
     if (a == b) return true;
     for (groups) |group| {
@@ -20,7 +20,7 @@ pub fn canOverlap(comptime Context: type, groups: []const []const Context, a: Co
     return false;
 }
 
-/// `validateDefaults` checks application defaults for every supported client platform.
+/// Checks defaults for macOS, Windows, and Linux.
 pub fn validateDefaults(comptime Context: type, comptime Action: type, comptime definition: anytype) void {
     comptime {
         // Parsing each binding for three platforms exceeds Zig's default budget in ordinary maps.

@@ -7,40 +7,40 @@ const DisplayStyle = key_module.DisplayStyle;
 const sequence = @import("sequence.zig");
 const validation = @import("validation.zig");
 
-/// `Diagnostic` describes a problem in the JSON configuration or keymap definition.\
-/// Read `message()` for the description.\
-/// For JSON syntax errors, `line` and `column` give the location when available.
+/// A problem found while loading bindings.\
+/// `message` returns the description.\
+/// For JSON syntax errors, `line` and `column` locate the problem.
 pub const Diagnostic = struct {
-    /// `Kind` identifies the problem that `load` found.
+    /// `Kind` identifies why `load` failed.
     pub const Kind = enum {
         /// The JSON is invalid or contains duplicate fields.
         syntax,
-        /// The JSON names a context with no declared bindings.
+        /// The JSON names a context that has no defaults.
         unknown_context,
-        /// The JSON names an action not declared for its context.
+        /// The JSON names an action that has no default in that context.
         unknown_action,
         /// A JSON value has the wrong type.
         invalid_type,
-        /// A default key string or a key string from the configuration is invalid.
+        /// A default or configured key string is invalid.
         invalid_key,
-        /// Two bindings use equivalent keys in contexts that can be active together.
+        /// Equivalent shortcuts belong to contexts that can be active together.
         collision,
         /// The defaults repeat a context and action pair.
         invalid_definition,
     };
-    /// This field identifies the problem.
+    /// Which problem `load` found.
     kind: Kind,
-    /// This field holds the JSON line number when available. Line numbers start at 1.
+    /// JSON syntax line, starting at 1.
     line: ?u32 = null,
-    /// This field holds the JSON column number when available. Column numbers start at 1.
+    /// JSON syntax column, starting at 1.
     column: ?u32 = null,
-    /// This buffer stores the diagnostic message.
+    /// Bytes read by `message`.
     buffer: [512]u8 = undefined,
-    /// This field holds the number of message bytes in `buffer`.
+    /// Number of bytes `message` returns.
     length: usize,
 
-    /// `message` returns the text stored in this diagnostic.\
-    /// While you use the text, keep this diagnostic alive and unchanged.
+    /// Returns the description.\
+    /// Keep this diagnostic alive and unchanged while using the text.
     pub fn message(self: *const Diagnostic) []const u8 {
         return self.buffer[0..self.length];
     }
@@ -53,119 +53,101 @@ pub const Diagnostic = struct {
     }
 };
 
-/// `Bindings` creates a type for the application's `Context` and `Action` enums.\
-/// A binding assigns keys to a context and action.\
-/// Each binding holds a list of `Keyboard` values.\
-/// Use `load()` to create bindings.\
-/// Use `resolve()` to select an action.\
-/// Use `deinit()` to free the memory for the bindings.
+/// Bindings for one `Context` enum and one `Action` enum.
 pub fn Bindings(
-    /// Use an enum of application contexts, such as global, list, or dialog.
+    /// An enum of places where bindings apply, such as `global` or `list`.
     comptime Context: type,
-    /// Use an enum of application actions, such as quit or move_down.
+    /// An enum of operations, such as `quit` or `move_down`.
     comptime Action: type,
 ) type {
     return struct {
         const Self = @This();
-        /// `SequenceResolver` tracks pending key presses without owning the loaded shortcuts.
+        /// Pending successive presses. The shortcuts stay owned by the bindings.
         pub const SequenceResolver = sequence.Resolver(Context, Action);
         /// `Default` assigns default key strings to one context and action.
         pub const Default = struct {
-            /// The binding applies to this context.
+            /// Context where this default applies.
             context: Context,
-            /// A key match selects this action.
+            /// Action selected when the keys match.
             action: Action,
-            /// Each string contains a key or successive keys separated by spaces, such as `Down` or `Ctrl+b n`.\
+            /// Key strings for this action, such as `Down` or `Ctrl+b n`.\
+            /// Separate successive presses with spaces.\
             /// Use `Space` for a space inside a sequence.\
-            /// An empty slice declares an action with no default keys.
+            /// An empty slice declares no default keys.
             keys: []const []const u8,
         };
-        /// `Definition` declares bindings, their defaults, and the contexts that can be active together.
+        /// Defaults and the contexts that can be active together.
         pub const Definition = struct {
-            /// This list declares context and action pairs with their default keys.\
-            /// JSON configuration can change keys only for these pairs.\
-            /// Actions missing from the JSON keep their default keys.\
-            /// Use `Mod` only when `loadWithOptions` selects a platform.
+            /// Context and action pairs, with their default keys.\
+            /// JSON can change keys only for these pairs.\
+            /// An omitted JSON action keeps its default keys.\
+            /// A key string may use `Mod` only when `loadWithOptions` sets `platform`.
             defaults: []const Default,
-            /// Each group lists contexts that can be active together.\
-            /// `load()` checks for key conflicts between bindings in these contexts.\
-            /// It always checks for conflicts within each context.\
-            /// Pass the current active contexts to `resolve()`.
+            /// Contexts that can be active together.\
+            /// `load` rejects conflicting shortcuts inside a context and inside each group.
             context_groups: []const []const Context,
         };
 
-        /// Check static defaults at compile time before loading them.
-        /// The validator checks keys, duplicate definitions, and conflicts on macOS, Windows, and Linux.
-        /// Call it with a compile-time definition, for example `Map.validateDefaults(definition);`.
+        /// Checks these defaults at compile time for macOS, Windows, and Linux.\
+        /// Invalid keys, duplicate pairs, and overlapping shortcuts fail compilation.
         pub fn validateDefaults(comptime definition: Definition) void {
             validation.validateDefaults(Context, Action, definition);
         }
 
-        /// `LoadOptions` selects how portable modifiers are resolved and how hints are displayed.
+        /// How `Mod` resolves and how `hint` labels are spelled.
         pub const LoadOptions = struct {
-            /// The client platform used to resolve `Mod`.\
-            /// `null` leaves keys concrete-only, so a `Mod` expression is invalid.\
-            /// Select the client keyboard platform explicitly; the build target may differ.
+            /// Client platform used to resolve `Mod`.\
+            /// `null` rejects `Mod` and does not read the build target.
             platform: ?Platform = null,
-            /// The modifier names used for `hint()` labels.\
-            /// This setting does not change matching or collision checks.
+            /// Names used by `hint`.\
+            /// This does not change matching or collision checks.
             display_style: DisplayStyle = .common,
         };
-        /// `LoadResult` contains loaded bindings or a diagnostic that describes invalid configuration or defaults.
+        /// Loaded bindings, or a diagnostic.
         pub const LoadResult = union(enum) {
-            /// This value owns the loaded bindings. Use `deinit()` to free their memory.
+            /// Owns the loaded bindings. Call `deinit` to free them.
             bindings: Self,
-            /// This diagnostic describes a configuration or definition problem.\
-            /// `load()` frees all memory for the bindings before it returns this value.
+            /// The configuration or defaults are unusable.\
+            /// `load` has already freed the bindings.
             invalid: Diagnostic,
         };
-        /// `Entry` stores one loaded binding.
         const Entry = struct {
-            /// The binding applies to this context.
             context: Context,
-            /// A key match selects this action.
             action: Action,
-            /// These single-key shortcuts preserve the `keys()` API.
+            /// Single-key shortcuts returned by `keys`.
             keys: []const Keyboard,
-            /// These shortcuts include single keys and successive key presses.
+            /// Shortcuts returned by `sequences`, including successive presses.
             sequences: []const sequence.Sequence,
-            /// This field holds the first key label, or an empty string if the action has no keys.
+            /// First label returned by `hint`, or an empty string.
             hint: []const u8,
         };
 
-        /// The bindings own this memory. `deinit()` frees it.
+        /// Memory owned by these bindings. `deinit` frees it.
         arena: std.heap.ArenaAllocator,
-        /// This list stores the loaded bindings.\
-        /// Use `keys()`, `hint()`, and `resolve()` to read them.
+        /// Loaded bindings. Read them through `keys`, `hint`, `sequences`, and `resolve`.
         entries: []Entry,
 
-        /// `load` creates bindings from `definition` and optional JSON configuration.\
-        /// To use the keys in `definition.defaults`, pass `null`.\
-        /// A JSON array replaces the default keys for that action.\
-        /// `[]` removes all keys for that action.\
-        /// Actions missing from the JSON keep their default keys.\
-        /// Keys must use concrete modifier names; use `loadWithOptions` to enable `Mod`.
-        ///
-        /// `load` returns `.invalid` for invalid configuration, invalid defaults, or key conflicts.\
-        /// If memory allocation fails, `load` returns `error.OutOfMemory`.
-        ///
-        /// The loaded bindings own their memory.\
-        /// After this call, you can free the input text and definition slices.
+        /// Creates bindings from `definition` and optional JSON text.\
+        /// Pass `null` to keep `definition.defaults`.\
+        /// A JSON array replaces that action's default keys.\
+        /// `[]` removes every key for that action.\
+        /// An omitted action keeps its default keys.\
+        /// Key strings must use concrete modifiers. Use `loadWithOptions` for `Mod`.\
+        /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting shortcuts.\
+        /// The bindings own their memory.\
+        /// The caller may free `text` and the definition slices.
         pub fn load(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
             return loadWithOptions(allocator, definition, text, .{});
         }
 
-        /// `loadWithOptions` creates bindings with an explicit platform and hint display style.\
-        /// The selected platform resolves `Mod` in both defaults and JSON overrides before collision checks.\
-        /// The display style affects only labels returned by `hint()`.\
-        /// A `null` platform keeps parsing concrete-only; it never infers a platform from the build target.\
-        /// Omitted JSON actions keep their defaults, while `[]` disables the action.
-        ///
-        /// `loadWithOptions` returns `.invalid` for invalid configuration, invalid defaults, or key conflicts.\
-        /// If memory allocation fails, it returns `error.OutOfMemory`.
-        ///
-        /// The loaded bindings own their keys and labels until `deinit()`.\
-        /// After this call, you can free the input text and definition slices.
+        /// Creates bindings with a client platform and a label style.\
+        /// `platform` resolves `Mod` in defaults and JSON before conflict checks.\
+        /// A `null` platform accepts only concrete modifiers.\
+        /// `display_style` changes `hint` labels only.\
+        /// JSON replacement rules match `load`.\
+        /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting shortcuts.\
+        /// The bindings own their keys and labels until `deinit`.\
+        /// The caller may free `text` and the definition slices.
         pub fn loadWithOptions(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8, options: LoadOptions) std.mem.Allocator.Error!LoadResult {
             var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
@@ -268,11 +250,10 @@ pub fn Bindings(
             return .{ .bindings = .{ .arena = arena, .entries = entries } };
         }
 
-        /// `resolve` returns the first matching action, or `null` if no binding matches.\
-        /// Pass the current active contexts in `active_contexts`.\
-        /// `resolve` checks contexts in that order, then bindings in the order of `definition.defaults`.\
-        /// A matcher must provide `matches(Keyboard) bool`.\
-        /// For libvaxis keys, use `vaxisMatcher`.
+        /// Returns the first matching action, or `null`.\
+        /// Checks `active_contexts` in order, then defaults in declaration order.\
+        /// `matcher` must provide `matches(Keyboard) bool`.\
+        /// For a libvaxis event, pass `vaxisMatcher`.
         pub fn resolve(self: *const Self, active_contexts: []const Context, matcher: anytype) ?Action {
             for (active_contexts) |context| {
                 for (self.entries) |entry| {
@@ -285,9 +266,9 @@ pub fn Bindings(
             return null;
         }
 
-        /// `keys` returns single-key shortcuts. Use `sequences()` to include successive key presses.\
-        /// The bindings own the result. It remains valid until `deinit()`.\
-        /// Do not free it separately.
+        /// Returns single-key shortcuts for the action.\
+        /// Successive presses are in `sequences`.\
+        /// The bindings own the result until `deinit`.
         pub fn keys(self: *const Self, context: Context, action: Action) []const Keyboard {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.keys;
@@ -295,8 +276,8 @@ pub fn Bindings(
             return &.{};
         }
 
-        /// Return every configured shortcut, including successive key presses.\
-        /// The bindings own the returned sequences and their keys until `deinit()`.
+        /// Returns every shortcut for the action, including successive presses.\
+        /// The bindings own the sequences and their keys until `deinit`.
         pub fn sequences(self: *const Self, context: Context, action: Action) []const sequence.Sequence {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.sequences;
@@ -304,15 +285,15 @@ pub fn Bindings(
             return &.{};
         }
 
-        /// Create state for successive events. Free it before `bindings.deinit()`.\
-        /// `resolve()` remains available for single-key shortcuts.
+        /// Creates state for successive key events.\
+        /// Free the resolver before `deinit` on these bindings.\
+        /// Single-key shortcuts still match through `resolve`.
         pub fn sequenceResolver(self: *const Self, allocator: std.mem.Allocator, options: SequenceResolver.Options) std.mem.Allocator.Error!SequenceResolver {
             return SequenceResolver.init(allocator, self.entries, options);
         }
 
-        /// `hint` returns the first configured key as a label, or an empty string if the action has no keys.\
-        /// The bindings own the result. It remains valid until `deinit()`.\
-        /// Do not free it separately.
+        /// Returns the first shortcut as a label, or an empty string when the action has no keys.\
+        /// The bindings own the result until `deinit`.
         pub fn hint(self: *const Self, context: Context, action: Action) []const u8 {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.hint;
@@ -320,8 +301,8 @@ pub fn Bindings(
             return "";
         }
 
-        /// `deinit` frees all memory that these bindings own.\
-        /// After this call, do not use the results from `keys()` or `hint()`.
+        /// Frees memory owned by these bindings.\
+        /// After this call, results from `keys`, `sequences`, and `hint` are invalid.
         pub fn deinit(self: *Self) void {
             self.arena.deinit();
             self.* = undefined;
