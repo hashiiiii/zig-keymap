@@ -134,6 +134,9 @@ pub const Keyboard = struct {
 
     /// `parse` reads a key string, such as `j`, `Ctrl+Enter`, or `Ctrl++`.\
     /// Key names and modifier names ignore case.\
+    /// Modifiers accept `Shift`, `Ctrl` (`Control`), `Alt` (`Option`, `Opt`),\
+    /// `Super` (`Command`, `Cmd`, `Win`, `Windows`), `Meta`, and `Hyper`.\
+    /// Aliases set the same flags as canonical names and count as duplicates when repeated.\
     /// Character keys keep their case and must contain exactly one Unicode codepoint.\
     /// `parse` returns `error.InvalidKey` for invalid UTF-8, unknown names, duplicate modifiers, or malformed strings.
     pub fn parse(text: []const u8) error{InvalidKey}!Keyboard {
@@ -141,7 +144,16 @@ pub const Keyboard = struct {
         var modifiers: Modifiers = .{};
         while (!std.mem.eql(u8, remaining, "+")) {
             const separator = std.mem.indexOfScalar(u8, remaining, '+') orelse break;
-            const prefix = remaining[0..separator];
+            const name = remaining[0..separator];
+            const prefix = if (std.ascii.eqlIgnoreCase(name, "Control"))
+                "ctrl"
+            else if (std.ascii.eqlIgnoreCase(name, "Option") or std.ascii.eqlIgnoreCase(name, "Opt"))
+                "alt"
+            else if (std.ascii.eqlIgnoreCase(name, "Command") or std.ascii.eqlIgnoreCase(name, "Cmd") or
+                std.ascii.eqlIgnoreCase(name, "Win") or std.ascii.eqlIgnoreCase(name, "Windows"))
+                "super"
+            else
+                name;
             var found = false;
             inline for (std.meta.fields(Modifiers)) |field| {
                 if (std.ascii.eqlIgnoreCase(prefix, field.name)) {
@@ -233,6 +245,31 @@ test "parse preserves character case and accepts case-insensitive names" {
         .key = .{ .named = .enter },
         .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true, .meta = true, .hyper = true },
     }, try Keyboard.parse("Hyper+Meta+Super+Shift+Alt+Ctrl+Enter"));
+}
+
+test "parse resolves platform modifier names with case-insensitive spelling" {
+    // Platform spellings must produce the same flags as portable configuration names.
+    try testing.expectEqual(try Keyboard.parse("Alt+k"), try Keyboard.parse("oPtIoN+k"));
+    try testing.expectEqual(try Keyboard.parse("Alt+k"), try Keyboard.parse("OpT+k"));
+    try testing.expectEqual(try Keyboard.parse("Super+k"), try Keyboard.parse("cOmMaNd+k"));
+    try testing.expectEqual(try Keyboard.parse("Super+k"), try Keyboard.parse("CmD+k"));
+    try testing.expectEqual(try Keyboard.parse("Super+k"), try Keyboard.parse("wIn+k"));
+    try testing.expectEqual(try Keyboard.parse("Super+k"), try Keyboard.parse("WiNdOwS+k"));
+    try testing.expectEqual(try Keyboard.parse("Ctrl+k"), try Keyboard.parse("cOnTrOl+k"));
+    try testing.expectEqual(try Keyboard.parse("Ctrl+Alt+Super++"), try Keyboard.parse("Control+Option+Command++"));
+    try testing.expect(!(try Keyboard.parse("Cmd+k")).equivalent(try Keyboard.parse("Meta+k")));
+    try testing.expect(!(try Keyboard.parse("Win+k")).equivalent(try Keyboard.parse("Hyper+k")));
+}
+
+test "parse rejects repeated modifiers written as platform aliases" {
+    // Alternate names must not bypass duplicate checks and hide configuration mistakes.
+    try testing.expectError(error.InvalidKey, Keyboard.parse("Alt+Option+k"));
+    try testing.expectError(error.InvalidKey, Keyboard.parse("Opt+Option+k"));
+    try testing.expectError(error.InvalidKey, Keyboard.parse("Command+Super+k"));
+    try testing.expectError(error.InvalidKey, Keyboard.parse("Cmd+Command+k"));
+    try testing.expectError(error.InvalidKey, Keyboard.parse("Win+Windows+k"));
+    try testing.expectError(error.InvalidKey, Keyboard.parse("Windows+Super+k"));
+    try testing.expectError(error.InvalidKey, Keyboard.parse("Control+Ctrl+k"));
 }
 
 test "parse accepts a literal plus with or without modifiers" {

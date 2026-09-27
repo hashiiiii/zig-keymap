@@ -82,3 +82,25 @@ test "native matching overlaps resolve in default declaration order" {
 
     try testing.expectEqual(Action.move_up, map.resolve(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } })).?);
 }
+
+test "platform modifier aliases collide across overlapping contexts" {
+    // A platform spelling must not let an override shadow an active default binding.
+    const Map = keymap.Bindings(enum { global, tree }, enum { quit, move_down });
+    const result = try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .global, .action = .quit, .keys = &.{"Alt+k"} },
+            .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
+        },
+        .context_groups = &.{&.{ .global, .tree }},
+    },
+        \\{"tree": {"move_down": ["Option+k"]}}
+    );
+    switch (result) {
+        .invalid => |diagnostic| try testing.expectEqual(keymap.Diagnostic.Kind.collision, diagnostic.kind),
+        .bindings => |bindings| {
+            var map = bindings;
+            defer map.deinit();
+            return error.TestUnexpectedResult;
+        },
+    }
+}
