@@ -1,18 +1,19 @@
 const Keyboard = @import("key.zig").Keyboard;
 
-/// Adapts a libvaxis key event for `Keymap.resolve`.
-/// Uses libvaxis matching for characters, named keys, and modifiers.
+/// `vaxisMatcher` creates a matcher for a libvaxis key event.
+/// Pass the matcher to `Keymap.resolve`.
+/// It uses libvaxis rules to match characters, named keys, and modifiers.
 pub fn vaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {
     return .{ .key = key };
 }
 
-/// A matcher that uses the terminal library's key type.
+/// `Matcher` creates a type that holds the terminal library's key event.
 fn Matcher(comptime NativeKey: type) type {
     return struct {
-        /// The incoming key event to compare with configured conditions.
+        /// This field holds the incoming key event.
         key: NativeKey,
 
-        /// Returns whether the incoming event matches `spec`, using libvaxis key matching.
+        /// `matches` returns `true` if the incoming event matches `spec` under libvaxis rules.
         pub fn matches(self: @This(), spec: Keyboard) bool {
             const codepoint = switch (spec.key) {
                 .character => |cp| cp,
