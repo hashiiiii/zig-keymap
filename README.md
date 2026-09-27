@@ -282,8 +282,8 @@ CI runs library, public API, and dependency-free consumer tests natively on macO
 
 ## API documentation
 
-Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).
-Run `zig build docs` to generate it in `zig-out/docs`.
+Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).  
+Run `zig build docs` to generate it in `zig-out/docs`.  
 The Docs workflow publishes it to Cloudflare Workers when `main` changes.
 
 ## License
