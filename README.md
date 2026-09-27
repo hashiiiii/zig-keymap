@@ -43,7 +43,7 @@ A context is an application mode or view.
 An action is an application operation.  
 A binding assigns keys to a context and action.  
 
-The application provides `allocator`, optional JSON text in `optional_json`, and the incoming libvaxis key event `key`.  
+The application provides `allocator`, a `std.Io` value named `io`, and the incoming libvaxis key event `key`.  
 Declare the contexts, actions, default keys, and groups of contexts that can be active together:
 
 ```zig
@@ -62,7 +62,10 @@ const specification: Bindings.Specification = .{
     .context_groups = &.{ &.{ .global, .list }, &.{.dialog} },
 };
 
-const loaded = try Bindings.load(allocator, specification, optional_json);
+const keymap_json = try std.Io.Dir.cwd().readFileAlloc(io, "keymap.json", allocator, .unlimited);
+defer allocator.free(keymap_json);
+
+const loaded = try Bindings.load(allocator, specification, keymap_json);
 var bindings = switch (loaded) {
     .bindings => |value| value,
     .invalid => |diagnostic| {
@@ -91,6 +94,8 @@ Do not free them separately.
 
 ### Configuration
 
+Save the configuration in `keymap.json`:
+
 ```json
 {
   "global": { "quit": ["Ctrl+q"] },
@@ -99,8 +104,9 @@ Do not free them separately.
 }
 ```
 
-Your application reads the JSON file.  
-Pass its text to `load`.  
+Your application reads `keymap.json` as text.  
+Pass that text to `load`.  
+`load` parses the JSON.  
 To use the keys in `specification.defaults`, pass `null`.  
 
 Actions missing from the JSON keep their default keys.  
