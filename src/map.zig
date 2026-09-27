@@ -5,6 +5,7 @@ const Keyboard = key_module.Keyboard;
 const Platform = key_module.Platform;
 const DisplayStyle = key_module.DisplayStyle;
 const sequence = @import("sequence.zig");
+const validation = @import("validation.zig");
 
 /// `Diagnostic` describes a problem in the JSON configuration or keymap definition.\
 /// Read `message()` for the description.\
@@ -92,6 +93,14 @@ pub fn Bindings(
             /// Pass the current active contexts to `resolve()`.
             context_groups: []const []const Context,
         };
+
+        /// Check static defaults at compile time before loading them.
+        /// The validator checks keys, duplicate definitions, and conflicts on macOS, Windows, and Linux.
+        /// Call it with a compile-time definition, for example `Map.validateDefaults(definition);`.
+        pub fn validateDefaults(comptime definition: Definition) void {
+            validation.validateDefaults(Context, Action, definition);
+        }
+
         /// `LoadOptions` selects how portable modifiers are resolved and how hints are displayed.
         pub const LoadOptions = struct {
             /// The client platform used to resolve `Mod`.\
@@ -247,7 +256,7 @@ pub fn Bindings(
             }
             for (entries, 0..) |a, index| {
                 for (entries[index + 1 ..]) |b| {
-                    if (!canOverlap(definition.context_groups, a.context, b.context)) continue;
+                    if (!validation.canOverlap(Context, definition.context_groups, a.context, b.context)) continue;
                     for (a.sequences) |ak| {
                         for (b.sequences) |bk| {
                             if (ak.overlaps(bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
@@ -257,20 +266,6 @@ pub fn Bindings(
             }
             retained = true;
             return .{ .bindings = .{ .arena = arena, .entries = entries } };
-        }
-
-        fn canOverlap(groups: []const []const Context, a: Context, b: Context) bool {
-            if (a == b) return true;
-            for (groups) |group| {
-                var has_a = false;
-                var has_b = false;
-                for (group) |context| {
-                    has_a = has_a or context == a;
-                    has_b = has_b or context == b;
-                }
-                if (has_a and has_b) return true;
-            }
-            return false;
         }
 
         /// `resolve` returns the first matching action, or `null` if no binding matches.\
@@ -349,6 +344,33 @@ test "load uses default aliases and the first key as the hint" {
     try testing.expectEqualStrings("Down", map.hint(.tree, .move_down));
     try testing.expectEqual(@as(usize, 0), map.keys(.tree, .move_up).len);
     try testing.expectEqualStrings("", map.hint(.tree, .move_up));
+}
+
+test "validateDefaults accepts defaults that load at runtime" {
+    // Invalid static defaults should fail before startup while valid defaults still use the loader.
+    const Map = Bindings(enum { tree }, enum { move_down });
+    const definition: Map.Definition = .{
+        .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } }},
+        .context_groups = &.{},
+    };
+    Map.validateDefaults(definition);
+    var map = (try Map.load(testing.allocator, definition, null)).bindings;
+    defer map.deinit();
+    try testing.expectEqual(@as(usize, 2), map.keys(.tree, .move_down).len);
+}
+
+test "validateDefaults checks platform modifiers and sequence defaults" {
+    // Disjoint contexts, exact aliases, and sequence defaults must stay valid across platform expansions.
+    const Map = Bindings(enum { global, tree, dialog }, enum { quit, move_down, open });
+    const definition: Map.Definition = .{
+        .defaults = &.{
+            .{ .context = .global, .action = .quit, .keys = &.{"Mod+q"} },
+            .{ .context = .tree, .action = .move_down, .keys = &.{ "Ctrl+j", "Ctrl+j", "g g" } },
+            .{ .context = .dialog, .action = .open, .keys = &.{"Mod+q"} },
+        },
+        .context_groups = &.{&.{ .global, .tree }},
+    };
+    Map.validateDefaults(definition);
 }
 
 test "load rejects unknown contexts and actions" {

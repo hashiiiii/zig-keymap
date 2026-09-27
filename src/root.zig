@@ -54,6 +54,8 @@
 //!     .context_groups = &.{},
 //! };
 //!
+//! Bindings.validateDefaults(definition);
+//!
 //! var bindings = switch (try Bindings.load(allocator, definition, null)) {
 //!     .bindings => |value| value,
 //!     .invalid => return error.InvalidKeymap,
