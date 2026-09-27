@@ -11,12 +11,13 @@ permissions:
 
 jobs:
   platform:
-    name: Native tests (${{ matrix.os }})
+    name: Native tests (${{ matrix.os }}, ${{ matrix.optimize }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        optimize: [Debug, ReleaseSafe]
     defaults:
       run:
         shell: bash
@@ -25,18 +26,12 @@ jobs:
       - uses: jdx/mise-action@v4
         with:
           install_args: zig
-      - name: Debug library tests
-        run: zig build test -Doptimize=Debug
-      - name: ReleaseSafe library tests
-        run: zig build test -Doptimize=ReleaseSafe
-      - name: Debug dependency-free consumer
+      - name: Library tests
+        run: zig build test -Doptimize=${{ matrix.optimize }}
+      - name: Dependency-free consumer
         run: |
           empty_packages="$(mktemp -d)"
-          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages" -Doptimize=Debug
-      - name: ReleaseSafe dependency-free consumer
-        run: |
-          empty_packages="$(mktemp -d)"
-          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages" -Doptimize=ReleaseSafe
+          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages" -Doptimize=${{ matrix.optimize }}
   format-docs:
     runs-on: ubuntu-latest
     steps:
@@ -48,3 +43,13 @@ jobs:
         run: zig fmt --check build.zig build.zig.zon src e2e
       - name: Build API documentation
         run: zig build docs -Doptimize=Debug
+  # Branch rules require a check named test.
+  test:
+    if: always()
+    needs: [platform, format-docs]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check CI results
+        run: |
+          test "${{ needs.platform.result }}" = success
+          test "${{ needs.format-docs.result }}" = success
