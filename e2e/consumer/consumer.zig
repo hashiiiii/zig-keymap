@@ -3,13 +3,18 @@ const keymap = @import("keymap");
 
 test "consumer loads JSON without external dependencies" {
     // Applications using other adapters should not need to download test dependencies.
-    const Map = keymap.Bindings(enum { global }, enum { quit });
-    var bindings = (try Map.load(std.testing.allocator, .{
-        .defaults = &.{.{ .context = .global, .action = .quit, .keys = &.{"q"} }},
+    const Map = keymap.Bindings(enum { global }, enum { quit, top });
+    const definition: Map.Definition = .{
+        .defaults = &.{
+            .{ .context = .global, .action = .quit, .keys = &.{"Mod+q"} },
+            .{ .context = .global, .action = .top, .keys = &.{"g g"} },
+        },
         .context_groups = &.{},
-    },
+    };
+    comptime Map.validateDefaults(definition);
+    var bindings = (try Map.loadWithOptions(std.testing.allocator, definition,
         \\{"global": {"quit": ["Ctrl+q"]}}
-    )).bindings;
+    , .{ .platform = .macos, .display_style = .macos })).bindings;
     defer bindings.deinit();
     try std.testing.expectEqualStrings("Ctrl+q", bindings.hint(.global, .quit));
     // Applications inspecting bindings need Keyboard without terminal dependencies.
@@ -17,4 +22,6 @@ test "consumer loads JSON without external dependencies" {
         .key = .{ .character = 'q' },
         .modifiers = .{ .ctrl = true },
     }, bindings.keys(.global, .quit)[0]);
+    try std.testing.expectEqualStrings("g g", bindings.hint(.global, .top));
+    try std.testing.expectEqual(@as(usize, 2), bindings.sequences(.global, .top)[0].keys.len);
 }

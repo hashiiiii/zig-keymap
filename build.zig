@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    // Only repository tests need terminal packages; consumers supply their own key types.
+    // Repository tests and the input probe need terminal packages; consumers supply their own key types.
     if (b.dep_prefix.len != 0) return;
     const docs = b.addObject(.{
         .name = "keymap",
