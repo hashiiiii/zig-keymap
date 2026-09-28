@@ -13,17 +13,10 @@ Bindings support platform modifiers, shortcut labels, and sequences of key press
 
 zig-keymap requires Zig `0.16.0` and has no external dependencies.
 
-For the released API, use the [README at the release tag](https://github.com/hashiiiii/zig-keymap/blob/v0.1.0/README.md).
-Add that release as `zig_keymap` in `build.zig.zon`:
+Add `zig_keymap` to `build.zig.zon`:
 
    ```sh
    zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#v0.1.0"
-   ```
-
-The usage below follows `main`, which may contain unreleased APIs. To try it, fetch `main`:
-
-   ```sh
-   zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#main"
    ```
 
 In `build.zig`, import the `keymap` module:
@@ -122,11 +115,10 @@ zig build test -Doptimize=Debug
 zig build test -Doptimize=ReleaseSafe
 ```
 
-To prepare a release, run `bump-my-version bump --new-version X.Y.Z` in a PR and merge it after CI passes. Then run the Release workflow on `main` with the same version.
-
 ## API documentation
 
-Read the [API documentation for `main`](https://zig-keymap.hashiiiii.workers.dev). It may describe APIs that are not in the latest release.
+Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).
+
 Run `zig build docs` to generate it in `zig-out/docs`.  
 The Docs workflow publishes it to Cloudflare Workers when `main` changes.
 

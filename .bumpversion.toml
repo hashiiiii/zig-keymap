@@ -17,8 +17,3 @@ replace = '.version = "{new_version}"'
 filename = "README.md"
 search = "git+https://github.com/hashiiiii/zig-keymap#v{current_version}"
 replace = "git+https://github.com/hashiiiii/zig-keymap#v{new_version}"
-
-[[tool.bumpversion.files]]
-filename = "README.md"
-search = "https://github.com/hashiiiii/zig-keymap/blob/v{current_version}/README.md"
-replace = "https://github.com/hashiiiii/zig-keymap/blob/v{new_version}/README.md"
