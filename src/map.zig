@@ -1,41 +1,46 @@
 const std = @import("std");
 const testing = std.testing;
-const Keyboard = @import("key.zig").Keyboard;
+const key_module = @import("key.zig");
+const Keyboard = key_module.Keyboard;
+const Platform = key_module.Platform;
+const DisplayStyle = key_module.DisplayStyle;
+const sequence = @import("sequence.zig");
+const validation = @import("validation.zig");
 
-/// `Diagnostic` describes a problem in the JSON configuration or keymap definition.\
-/// Read `message()` for the description.\
-/// For JSON syntax errors, `line` and `column` give the location when available.
+/// A problem found while loading bindings.\
+/// `message` returns the description.\
+/// For JSON syntax errors, `line` and `column` locate the problem.
 pub const Diagnostic = struct {
-    /// `Kind` identifies the problem that `load` found.
+    /// `Kind` identifies why `load` failed.
     pub const Kind = enum {
         /// The JSON is invalid or contains duplicate fields.
         syntax,
-        /// The JSON names a context with no declared bindings.
+        /// The JSON names a context that has no defaults.
         unknown_context,
-        /// The JSON names an action not declared for its context.
+        /// The JSON names an action that has no default in that context.
         unknown_action,
         /// A JSON value has the wrong type.
         invalid_type,
-        /// A default key string or a key string from the configuration is invalid.
+        /// A default or configured key string is invalid.
         invalid_key,
-        /// Two bindings use equivalent keys in contexts that can be active together.
+        /// Equivalent shortcuts belong to contexts that can be active together.
         collision,
         /// The defaults repeat a context and action pair.
         invalid_definition,
     };
-    /// This field identifies the problem.
+    /// Which problem `load` found.
     kind: Kind,
-    /// This field holds the JSON line number when available. Line numbers start at 1.
+    /// JSON syntax line, starting at 1.
     line: ?u32 = null,
-    /// This field holds the JSON column number when available. Column numbers start at 1.
+    /// JSON syntax column, starting at 1.
     column: ?u32 = null,
-    /// This buffer stores the diagnostic message.
+    /// Bytes read by `message`.
     buffer: [512]u8 = undefined,
-    /// This field holds the number of message bytes in `buffer`.
+    /// Number of bytes `message` returns.
     length: usize,
 
-    /// `message` returns the text stored in this diagnostic.\
-    /// While you use the text, keep this diagnostic alive and unchanged.
+    /// Returns the description.\
+    /// Keep this diagnostic alive and unchanged while using the text.
     pub fn message(self: *const Diagnostic) []const u8 {
         return self.buffer[0..self.length];
     }
@@ -48,80 +53,102 @@ pub const Diagnostic = struct {
     }
 };
 
-/// `Bindings` creates a type for the application's `Context` and `Action` enums.\
-/// A binding assigns keys to a context and action.\
-/// Each binding holds a list of `Keyboard` values.\
-/// Use `load()` to create bindings.\
-/// Use `resolve()` to select an action.\
-/// Use `deinit()` to free the memory for the bindings.
+/// Bindings for one `Context` enum and one `Action` enum.
 pub fn Bindings(
-    /// Use an enum of application contexts, such as global, list, or dialog.
+    /// An enum of places where bindings apply, such as `global` or `list`.
     comptime Context: type,
-    /// Use an enum of application actions, such as quit or move_down.
+    /// An enum of operations, such as `quit` or `move_down`.
     comptime Action: type,
 ) type {
     return struct {
         const Self = @This();
+        /// Pending successive presses. The shortcuts stay owned by the bindings.
+        pub const SequenceResolver = sequence.Resolver(Context, Action);
         /// `Default` assigns default key strings to one context and action.
         pub const Default = struct {
-            /// The binding applies to this context.
+            /// Context where this default applies.
             context: Context,
-            /// A key match selects this action.
+            /// Action selected when the keys match.
             action: Action,
-            /// These key strings use the format that `Keyboard.parse` accepts, such as `Down` or `Ctrl+j`.\
-            /// An empty slice declares an action with no default keys.
+            /// Key strings for this action, such as `Down` or `Ctrl+b n`.\
+            /// Separate successive presses with spaces.\
+            /// Use `Space` for a space inside a sequence.\
+            /// An empty slice declares no default keys.
             keys: []const []const u8,
         };
-        /// `Definition` declares bindings, their defaults, and the contexts that can be active together.
+        /// Defaults and the contexts that can be active together.
         pub const Definition = struct {
-            /// This list declares context and action pairs with their default keys.\
-            /// JSON configuration can change keys only for these pairs.\
-            /// Actions missing from the JSON keep their default keys.
+            /// Context and action pairs, with their default keys.\
+            /// JSON can change keys only for these pairs.\
+            /// An omitted JSON action keeps its default keys.\
+            /// A key string may use `Mod` only when `loadWithOptions` sets `platform`.
             defaults: []const Default,
-            /// Each group lists contexts that can be active together.\
-            /// `load()` checks for key conflicts between bindings in these contexts.\
-            /// It always checks for conflicts within each context.\
-            /// Pass the current active contexts to `resolve()`.
+            /// Contexts that can be active together.\
+            /// `load` rejects conflicting shortcuts inside a context and inside each group.
             context_groups: []const []const Context,
         };
-        /// `LoadResult` contains loaded bindings or a diagnostic that describes invalid configuration or defaults.
+
+        /// Checks these defaults at compile time for macOS, Windows, and Linux.\
+        /// Invalid keys, duplicate pairs, and overlapping shortcuts fail compilation.
+        pub fn validateDefaults(comptime definition: Definition) void {
+            validation.validateDefaults(Context, Action, definition);
+        }
+
+        /// How `Mod` resolves and how `hint` labels are spelled.
+        pub const LoadOptions = struct {
+            /// Client platform used to resolve `Mod`.\
+            /// `null` rejects `Mod` and does not read the build target.
+            platform: ?Platform = null,
+            /// Names used by `hint`.\
+            /// This does not change matching or collision checks.
+            display_style: DisplayStyle = .common,
+        };
+        /// Loaded bindings, or a diagnostic.
         pub const LoadResult = union(enum) {
-            /// This value owns the loaded bindings. Use `deinit()` to free their memory.
+            /// Owns the loaded bindings. Call `deinit` to free them.
             bindings: Self,
-            /// This diagnostic describes a configuration or definition problem.\
-            /// `load()` frees all memory for the bindings before it returns this value.
+            /// The configuration or defaults are unusable.\
+            /// `load` has already freed the bindings.
             invalid: Diagnostic,
         };
-        /// `Entry` stores one loaded binding.
         const Entry = struct {
-            /// The binding applies to this context.
             context: Context,
-            /// A key match selects this action.
             action: Action,
-            /// The bindings own these parsed `Keyboard` values.
+            /// Single-key shortcuts returned by `keys`.
             keys: []const Keyboard,
-            /// This field holds the first key label, or an empty string if the action has no keys.
+            /// Shortcuts returned by `sequences`, including successive presses.
+            sequences: []const sequence.Sequence,
+            /// First label returned by `hint`, or an empty string.
             hint: []const u8,
         };
 
-        /// The bindings own this memory. `deinit()` frees it.
+        /// Memory owned by these bindings. `deinit` frees it.
         arena: std.heap.ArenaAllocator,
-        /// This list stores the loaded bindings.\
-        /// Use `keys()`, `hint()`, and `resolve()` to read them.
+        /// Loaded bindings. Read them through `keys`, `hint`, `sequences`, and `resolve`.
         entries: []Entry,
 
-        /// `load` creates bindings from `definition` and optional JSON configuration.\
-        /// To use the keys in `definition.defaults`, pass `null`.\
-        /// A JSON array replaces the default keys for that action.\
-        /// `[]` removes all keys for that action.\
-        /// Actions missing from the JSON keep their default keys.
-        ///
-        /// `load` returns `.invalid` for invalid configuration, invalid defaults, or key conflicts.\
-        /// If memory allocation fails, `load` returns `error.OutOfMemory`.
-        ///
-        /// The loaded bindings own their memory.\
-        /// After this call, you can free the input text and definition slices.
+        /// Creates bindings from `definition` and optional JSON text.\
+        /// Pass `null` to keep `definition.defaults`.\
+        /// A JSON array replaces that action's default keys.\
+        /// `[]` removes every key for that action.\
+        /// An omitted action keeps its default keys.\
+        /// Key strings must use concrete modifiers. Use `loadWithOptions` for `Mod`.\
+        /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting shortcuts.\
+        /// The bindings own their memory.\
+        /// The caller may free `text` and the definition slices.
         pub fn load(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
+            return loadWithOptions(allocator, definition, text, .{});
+        }
+
+        /// Creates bindings with a client platform and a label style.\
+        /// `platform` resolves `Mod` in defaults and JSON before conflict checks.\
+        /// A `null` platform accepts only concrete modifiers.\
+        /// `display_style` changes `hint` labels only.\
+        /// JSON replacement rules match `load`.\
+        /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting shortcuts.\
+        /// The bindings own their keys and labels until `deinit`.\
+        /// The caller may free `text` and the definition slices.
+        pub fn loadWithOptions(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8, options: LoadOptions) std.mem.Allocator.Error!LoadResult {
             var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
             defer if (!retained) arena.deinit();
@@ -178,20 +205,43 @@ pub fn Bindings(
                     break :blk context.object.get(@tagName(binding.action));
                 } else null;
                 const count = if (override) |value| value.array.items.len else binding.keys.len;
-                const parsed_keys = try storage.alloc(Keyboard, count);
-                for (parsed_keys, 0..) |*key, key_index| {
+                const shortcuts = try storage.alloc(sequence.Sequence, count);
+                var single_keys: std.ArrayList(Keyboard) = .empty;
+                for (shortcuts, 0..) |*shortcut, key_index| {
                     const expression = if (override) |value| value.array.items[key_index].string else binding.keys[key_index];
-                    key.* = Keyboard.parse(expression) catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
+                    var steps = sequence.Steps.init(expression);
+                    var parsed: std.ArrayList(Keyboard) = .empty;
+                    while (steps.next()) |step| {
+                        const parsed_step = if (options.platform) |platform|
+                            Keyboard.parseForPlatform(step, platform)
+                        else
+                            Keyboard.parse(step);
+                        const key = parsed_step catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
+                        try parsed.append(storage, key);
+                    }
+                    if (parsed.items.len == 0) return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
+                    shortcut.* = .{ .keys = try parsed.toOwnedSlice(storage) };
+                    if (shortcut.keys.len == 1) try single_keys.append(storage, shortcut.keys[0]);
+                    for (shortcuts[0..key_index]) |previous| {
+                        if (previous.keys.len != shortcut.keys.len and previous.overlaps(shortcut.*)) return .{ .invalid = Diagnostic.init(.collision, "Prefix collision for '{s}.{s}'", .{ @tagName(binding.context), @tagName(binding.action) }) };
+                    }
                 }
                 var label_buffer: [96]u8 = undefined;
-                entries[index] = .{ .context = binding.context, .action = binding.action, .keys = parsed_keys, .hint = if (parsed_keys.len == 0) "" else try storage.dupe(u8, parsed_keys[0].format(&label_buffer)) };
+                var label: std.ArrayList(u8) = .empty;
+                if (shortcuts.len != 0) {
+                    for (shortcuts[0].keys, 0..) |key, step_index| {
+                        if (step_index != 0) try label.append(storage, ' ');
+                        try label.appendSlice(storage, key.formatWithStyle(&label_buffer, options.display_style));
+                    }
+                }
+                entries[index] = .{ .context = binding.context, .action = binding.action, .keys = try single_keys.toOwnedSlice(storage), .sequences = shortcuts, .hint = try label.toOwnedSlice(storage) };
             }
             for (entries, 0..) |a, index| {
                 for (entries[index + 1 ..]) |b| {
-                    if (!canOverlap(definition.context_groups, a.context, b.context)) continue;
-                    for (a.keys) |ak| {
-                        for (b.keys) |bk| {
-                            if (ak.equivalent(bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
+                    if (!validation.canOverlap(Context, definition.context_groups, a.context, b.context)) continue;
+                    for (a.sequences) |ak| {
+                        for (b.sequences) |bk| {
+                            if (ak.overlaps(bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
                         }
                     }
                 }
@@ -200,25 +250,10 @@ pub fn Bindings(
             return .{ .bindings = .{ .arena = arena, .entries = entries } };
         }
 
-        fn canOverlap(groups: []const []const Context, a: Context, b: Context) bool {
-            if (a == b) return true;
-            for (groups) |group| {
-                var has_a = false;
-                var has_b = false;
-                for (group) |context| {
-                    has_a = has_a or context == a;
-                    has_b = has_b or context == b;
-                }
-                if (has_a and has_b) return true;
-            }
-            return false;
-        }
-
-        /// `resolve` returns the first matching action, or `null` if no binding matches.\
-        /// Pass the current active contexts in `active_contexts`.\
-        /// `resolve` checks contexts in that order, then bindings in the order of `definition.defaults`.\
-        /// A matcher must provide `matches(Keyboard) bool`.\
-        /// For libvaxis keys, use `vaxisMatcher`.
+        /// Returns the first matching action, or `null`.\
+        /// Checks `active_contexts` in order, then defaults in declaration order.\
+        /// `matcher` must provide `matches(Keyboard) bool`.\
+        /// For a libvaxis event, pass `vaxisMatcher`.
         pub fn resolve(self: *const Self, active_contexts: []const Context, matcher: anytype) ?Action {
             for (active_contexts) |context| {
                 for (self.entries) |entry| {
@@ -231,9 +266,9 @@ pub fn Bindings(
             return null;
         }
 
-        /// `keys` returns the configured `Keyboard` values, or an empty slice if the action has no keys.\
-        /// The bindings own the result. It remains valid until `deinit()`.\
-        /// Do not free it separately.
+        /// Returns single-key shortcuts for the action.\
+        /// Successive presses are in `sequences`.\
+        /// The bindings own the result until `deinit`.
         pub fn keys(self: *const Self, context: Context, action: Action) []const Keyboard {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.keys;
@@ -241,9 +276,24 @@ pub fn Bindings(
             return &.{};
         }
 
-        /// `hint` returns the first configured key as a label, or an empty string if the action has no keys.\
-        /// The bindings own the result. It remains valid until `deinit()`.\
-        /// Do not free it separately.
+        /// Returns every shortcut for the action, including successive presses.\
+        /// The bindings own the sequences and their keys until `deinit`.
+        pub fn sequences(self: *const Self, context: Context, action: Action) []const sequence.Sequence {
+            for (self.entries) |entry| {
+                if (entry.context == context and entry.action == action) return entry.sequences;
+            }
+            return &.{};
+        }
+
+        /// Creates state for successive key events.\
+        /// Free the resolver before `deinit` on these bindings.\
+        /// Single-key shortcuts still match through `resolve`.
+        pub fn sequenceResolver(self: *const Self, allocator: std.mem.Allocator, options: SequenceResolver.Options) std.mem.Allocator.Error!SequenceResolver {
+            return SequenceResolver.init(allocator, self.entries, options);
+        }
+
+        /// Returns the first shortcut as a label, or an empty string when the action has no keys.\
+        /// The bindings own the result until `deinit`.
         pub fn hint(self: *const Self, context: Context, action: Action) []const u8 {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.hint;
@@ -251,8 +301,8 @@ pub fn Bindings(
             return "";
         }
 
-        /// `deinit` frees all memory that these bindings own.\
-        /// After this call, do not use the results from `keys()` or `hint()`.
+        /// Frees memory owned by these bindings.\
+        /// After this call, results from `keys`, `sequences`, and `hint` are invalid.
         pub fn deinit(self: *Self) void {
             self.arena.deinit();
             self.* = undefined;
@@ -430,4 +480,48 @@ test "load owns bindings after the input is freed" {
     try testing.expectEqual(Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, map.keys(.tree, .move_down)[0]);
     try testing.expectEqual(Keyboard{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1]);
     try testing.expectEqualStrings("Ctrl+n", map.hint(.tree, .move_down));
+}
+
+test "loadWithOptions expands Mod in defaults and overrides and styles hints" {
+    // Definitions and JSON must resolve portable modifiers with the same selected platform.
+    const Map = Bindings(enum { tree }, enum { move_down, quit });
+    const override_text =
+        \\{"tree": {"quit": ["Mod+q"]}}
+    ;
+    var map = (try Map.loadWithOptions(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .tree, .action = .move_down, .keys = &.{"Mod+K"} },
+            .{ .context = .tree, .action = .quit, .keys = &.{"q"} },
+        },
+        .context_groups = &.{},
+    }, override_text, .{ .platform = .macos, .display_style = .macos })).bindings;
+    defer map.deinit();
+
+    try testing.expectEqual(Keyboard{ .key = .{ .character = 'K' }, .modifiers = .{ .super = true } }, map.keys(.tree, .move_down)[0]);
+    try testing.expectEqual(Keyboard{ .key = .{ .character = 'q' }, .modifiers = .{ .super = true } }, map.keys(.tree, .quit)[0]);
+    try testing.expectEqualStrings("Command+K", map.hint(.tree, .move_down));
+    try testing.expectEqualStrings("Command+q", map.hint(.tree, .quit));
+}
+
+test "loadWithOptions detects Mod collisions in overlapping contexts" {
+    // Platform expansion must happen before conflict checks for active context groups.
+    const Map = Bindings(enum { global, tree }, enum { quit, move_down });
+    const override_text =
+        \\{"tree": {"move_down": ["Mod+s"]}}
+    ;
+    const result = try Map.loadWithOptions(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .global, .action = .quit, .keys = &.{"Ctrl+s"} },
+            .{ .context = .tree, .action = .move_down, .keys = &.{"j"} },
+        },
+        .context_groups = &.{&.{ .global, .tree }},
+    }, override_text, .{ .platform = .linux });
+    switch (result) {
+        .invalid => |diagnostic| try testing.expectEqual(Diagnostic.Kind.collision, diagnostic.kind),
+        .bindings => |bindings| {
+            var map = bindings;
+            defer map.deinit();
+            return error.TestUnexpectedResult;
+        },
+    }
 }

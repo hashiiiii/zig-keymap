@@ -6,7 +6,8 @@
 [![Zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg?logo=zig&logoColor=white)](https://ziglang.org)
 
 zig-keymap maps keys to actions in Zig terminal applications.  
-Applications define defaults in Zig, and users can change them with JSON configuration.
+Applications define defaults in Zig, and users can change them with JSON configuration.  
+Bindings support platform modifiers, shortcut labels, and sequences of key presses.
 
 ## Installation
 
@@ -30,35 +31,38 @@ In `build.zig`, import the `keymap` module:
 
 ## Usage
 
-A context identifies where bindings apply. Define contexts, actions, and their default keys.  
+Define contexts, actions, and their default keys.
 Provide `allocator`, `io` (`std.Io`), and a [libvaxis](https://github.com/rockorager/libvaxis) key event named `key`:
 
 ```zig
 const std = @import("std");
 const keymap = @import("keymap");
-const Context = enum { global, list, dialog };
-const Action = enum { quit, move_down, cancel };
+const Context = enum { global, list };
+const Action = enum { quit, save, move_down };
 const Bindings = keymap.Bindings(Context, Action);
 
 const definition: Bindings.Definition = .{
     .defaults = &.{
         .{ .context = .global, .action = .quit, .keys = &.{"q"} },
+        .{ .context = .global, .action = .save, .keys = &.{"Mod+s"} },
         .{ .context = .list, .action = .move_down, .keys = &.{ "Down", "j" } },
-        .{ .context = .dialog, .action = .cancel, .keys = &.{"Escape"} },
     },
-    .context_groups = &.{ &.{ .global, .list }, &.{.dialog} },
+    .context_groups = &.{&.{ .global, .list }},
 };
+
+comptime {
+    Bindings.validateDefaults(definition);
+}
 
 const keymap_json = try std.Io.Dir.cwd().readFileAlloc(io, "keymap.json", allocator, .unlimited);
 defer allocator.free(keymap_json);
 
-const loaded = try Bindings.load(allocator, definition, keymap_json);
-var bindings = switch (loaded) {
+var bindings = switch (try Bindings.loadWithOptions(allocator, definition, keymap_json, .{
+    .platform = .macos,
+    .display_style = .macos,
+})) {
     .bindings => |value| value,
-    .invalid => |diagnostic| {
-        std.log.err("{s}", .{diagnostic.message()});
-        return error.InvalidKeymap;
-    },
+    .invalid => return error.InvalidKeymap,
 };
 defer bindings.deinit();
 
@@ -66,76 +70,28 @@ const action = bindings.resolve(&.{ .global, .list }, keymap.vaxisMatcher(key));
 const label = bindings.hint(.global, .quit);
 ```
 
+`.invalid` returns a diagnostic.  
+`validateDefaults` checks those defaults for macOS, Windows, and Linux at compile time.  
 `context_groups` lists contexts that can be active together.  
-`load` checks for conflicts within each context and group.
+`loadWithOptions` expands `Mod` for the chosen `.platform`.  
+On macOS, `Mod+s` matches Super.  
+`hint` returns the first shortcut label.  
 
-`resolve` returns the first matching action, or `null` if none match.  
-It checks active contexts in order, then bindings in `definition.defaults` order.
-
-`hint` returns the first key label, or an empty string. `keys` returns configured `Keyboard` values.  
-Both results remain valid until `bindings.deinit()`. Do not free them separately.
-
-### Configuration
-
-The library has no default file path. The example above reads `keymap.json` from the current working directory.
-
-Pass a path relative to that directory:
-
-```zig
-const keymap_json = try std.Io.Dir.cwd().readFileAlloc(io, "config/keymap.json", allocator, .unlimited);
-defer allocator.free(keymap_json);
-```
-
-Pass an absolute path:
-
-```zig
-const keymap_json = try std.Io.Dir.cwd().readFileAlloc(io, "/path/to/keymap.json", allocator, .unlimited);
-defer allocator.free(keymap_json);
-```
-
-Use this JSON in `keymap.json`:
+`keymap.json` can replace those defaults:
 
 ```json
 {
   "global": { "quit": ["Ctrl+q"] },
-  "list": { "move_down": ["Down", "n"] },
-  "dialog": { "cancel": [] }
+  "list": { "move_down": [] }
 }
 ```
 
-`load` parses the JSON text. To use `definition.defaults`, pass `null`.
+An action in the JSON replaces its default keys.  
+An empty array removes all keys for that action.  
+An omitted action keeps its default keys.  
 
-| JSON | Keys |
-| --- | --- |
-| Missing action | Keeps its default keys |
-| Non-empty array | Replaces its default keys |
-| Empty array (`[]`) | Removes all keys |
-
-`load` returns a diagnostic for unknown names, invalid values or keys, duplicate fields, or key conflicts.
-
-### Keys
-
-Use a character or key name:
-
-| Type | Keys |
-| --- | --- |
-| Character | One Unicode codepoint, such as `j`, `あ`, or `+` |
-| Arrows | `Up`, `Down`, `Left`, `Right` |
-| Navigation | `Home`, `End`, `PageUp`, `PageDown` |
-| Editing | `Backspace`, `Delete`, `Insert` |
-| Other keys | `Enter`, `Escape`, `Tab`, `Space` |
-| Function keys | `F1`–`F12` |
-
-Combine `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, or `Hyper` with `+`:
-
-| Format | Examples |
-| --- | --- |
-| One key | `j`, `あ`, `Enter`, `+` |
-| Modifier + key | `Ctrl+Enter`, `Shift+v`, `Ctrl++` |
-| Several modifiers + key | `Ctrl+Shift+Enter` |
-
-Key and modifier names ignore case. Character keys keep their case.  
-For other terminal libraries, provide a matcher with `matches(Keyboard) bool`.
+A key string can name successive presses, such as `g g`.  
+Pass the loaded bindings to `sequenceResolver` to match them.
 
 ## Development
 
