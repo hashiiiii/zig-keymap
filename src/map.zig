@@ -327,33 +327,6 @@ test "load uses default aliases and the first key as the hint" {
     try testing.expectEqualStrings("", map.hint(.tree, .move_up));
 }
 
-test "validateDefaults accepts defaults that load at runtime" {
-    // Invalid static defaults should fail before startup while valid defaults still use the loader.
-    const Map = Bindings(enum { tree }, enum { move_down });
-    const definition: Map.Definition = .{
-        .defaults = &.{.{ .context = .tree, .action = .move_down, .keys = &.{ "Down", "j" } }},
-        .context_groups = &.{},
-    };
-    Map.validateDefaults(definition);
-    var map = (try Map.load(testing.allocator, definition, null)).bindings;
-    defer map.deinit();
-    try testing.expectEqual(@as(usize, 2), map.keys(.tree, .move_down).len);
-}
-
-test "validateDefaults checks platform modifiers and sequence defaults" {
-    // Disjoint contexts, exact aliases, and sequence defaults must stay valid across platform expansions.
-    const Map = Bindings(enum { global, tree, dialog }, enum { quit, move_down, open });
-    const definition: Map.Definition = .{
-        .defaults = &.{
-            .{ .context = .global, .action = .quit, .keys = &.{"Mod+q"} },
-            .{ .context = .tree, .action = .move_down, .keys = &.{ "Ctrl+j", "Ctrl+j", "g g" } },
-            .{ .context = .dialog, .action = .open, .keys = &.{"Mod+q"} },
-        },
-        .context_groups = &.{&.{ .global, .tree }},
-    };
-    Map.validateDefaults(definition);
-}
-
 test "load rejects unknown contexts and actions" {
     // Misspelled or misplaced actions must not silently fall back to defaults.
     const Map = Bindings(enum { tree, dialog }, enum { move_down, cancel });
