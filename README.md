@@ -32,13 +32,13 @@ In `build.zig`, import the `keymap` module:
 ## Usage
 
 Define contexts, actions, and their default keys.
-Provide `allocator`, `io` (`std.Io`), and a [libvaxis](https://github.com/rockorager/libvaxis) key event named `key`:
+Assume `allocator`, `io` (`std.Io`), `now_ms` (monotonic milliseconds), and a [libvaxis](https://github.com/rockorager/libvaxis) key event `key`:
 
 ```zig
 const std = @import("std");
 const keymap = @import("keymap");
 const Context = enum { global, list };
-const Action = enum { quit, save, move_down };
+const Action = enum { quit, save, move_down, top };
 const Bindings = keymap.Bindings(Context, Action);
 
 const definition: Bindings.Definition = .{
@@ -46,6 +46,7 @@ const definition: Bindings.Definition = .{
         .{ .context = .global, .action = .quit, .keys = &.{"q"} },
         .{ .context = .global, .action = .save, .keys = &.{"Mod+s"} },
         .{ .context = .list, .action = .move_down, .keys = &.{ "Down", "j" } },
+        .{ .context = .list, .action = .top, .keys = &.{"g g"} },
     },
     .context_groups = &.{&.{ .global, .list }},
 };
@@ -62,11 +63,19 @@ var bindings = switch (try Bindings.loadWithOptions(allocator, definition, keyma
     .display_style = .macos,
 })) {
     .bindings => |value| value,
-    .invalid => return error.InvalidKeymap,
+    .invalid => |diagnostic| {
+        std.log.err("{s}", .{diagnostic.message()});
+        return error.InvalidKeymap;
+    },
 };
 defer bindings.deinit();
 
-const action = bindings.resolve(&.{ .global, .list }, keymap.vaxisMatcher(key));
+var resolver = try bindings.sequenceResolver(allocator, .{});
+defer resolver.deinit();
+const action: ?Action = switch (resolver.feed(&.{ .global, .list }, keymap.vaxisMatcher(key), now_ms)) {
+    .action => |value| value,
+    .pending, .none => null,
+};
 const label = bindings.hint(.global, .quit);
 ```
 
@@ -75,6 +84,8 @@ const label = bindings.hint(.global, .quit);
 `context_groups` lists contexts that can be active together.  
 `loadWithOptions` expands `Mod` for the chosen `.platform`.  
 On macOS, `Mod+s` matches Super.  
+The OS or terminal may not send `Mod+s` to the app.
+
 `hint` returns the first shortcut label.  
 
 `keymap.json` can replace those defaults:
@@ -90,8 +101,11 @@ An action in the JSON replaces its default keys.
 An empty array removes all keys for that action.  
 An omitted action keeps its default keys.  
 
-A key string can name successive presses, such as `g g`.  
-Pass the loaded bindings to `sequenceResolver` to match them.
+`g g` means two key presses.
+
+Keep one resolver across key events. `feed` handles single keys and sequences. Do not also call `resolve` for the same event.
+Call `advance` without a key event to check timeouts or context changes. `cancel` clears pending input.
+With only single keys, `resolve` also works.
 
 ## Development
 
@@ -104,7 +118,8 @@ zig build test -Doptimize=ReleaseSafe
 
 ## API documentation
 
-Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).  
+Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).
+
 Run `zig build docs` to generate it in `zig-out/docs`.  
 The Docs workflow publishes it to Cloudflare Workers when `main` changes.
 
