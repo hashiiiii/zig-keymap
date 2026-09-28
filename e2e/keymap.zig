@@ -280,6 +280,41 @@ test "native matching overlaps resolve in default declaration order" {
     try testing.expectEqual(Action.move_up, map.resolve(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } })).?);
 }
 
+test "Caps Lock text overlaps follow active context order" {
+    // The same event can match j through its codepoint and J through its text.
+    const Action = enum { lower, upper };
+    const Map = keymap.Bindings(enum { global, editor }, Action);
+    var map = (try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .global, .action = .lower, .keys = &.{"j"} },
+            .{ .context = .editor, .action = .upper, .keys = &.{"J"} },
+        },
+        .context_groups = &.{&.{ .global, .editor }},
+    }, null)).bindings;
+    defer map.deinit();
+
+    const event = keymap.vaxisMatcher(Key{ .codepoint = 'j', .text = "J", .mods = .{ .caps_lock = true } });
+    try testing.expectEqual(Action.lower, map.resolve(&.{ .global, .editor }, event).?);
+    try testing.expectEqual(Action.upper, map.resolve(&.{ .editor, .global }, event).?);
+}
+
+test "base layout codepoint does not override received Unicode" {
+    // A layout hint must not turn text from another layout into a physical shortcut.
+    const Action = enum { latin, unicode };
+    const Map = keymap.Bindings(enum { editor }, Action);
+    var map = (try Map.load(testing.allocator, .{
+        .defaults = &.{
+            .{ .context = .editor, .action = .latin, .keys = &.{"x"} },
+            .{ .context = .editor, .action = .unicode, .keys = &.{"あ"} },
+        },
+        .context_groups = &.{},
+    }, null)).bindings;
+    defer map.deinit();
+
+    const event = keymap.vaxisMatcher(Key{ .codepoint = 'あ', .text = "あ", .base_layout_codepoint = 'x' });
+    try testing.expectEqual(Action.unicode, map.resolve(&.{.editor}, event).?);
+}
+
 test "platform modifier aliases collide across overlapping contexts" {
     // A platform spelling must not let an override shadow an active default binding.
     const Map = keymap.Bindings(enum { global, tree }, enum { quit, move_down });

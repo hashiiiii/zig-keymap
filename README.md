@@ -93,6 +93,8 @@ An omitted action keeps its default keys.
 A key string can name successive presses, such as `g g`.  
 Pass the loaded bindings to `sequenceResolver` to match them.
 
+See [keyboard input and native matching](docs/keyboard-input.md) for collision rules and terminal checks.
+
 ## Development
 
 ```sh
