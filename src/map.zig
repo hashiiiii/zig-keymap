@@ -287,7 +287,7 @@ pub fn Bindings(
 
         /// Creates state for successive key events.\
         /// Free the resolver before `deinit` on these bindings.\
-        /// The resolver also matches single-key shortcuts; do not call `resolve` for the same event.
+        /// The resolver also matches single keys. Do not call `resolve` for the same event.
         pub fn sequenceResolver(self: *const Self, allocator: std.mem.Allocator, options: SequenceResolver.Options) std.mem.Allocator.Error!SequenceResolver {
             return SequenceResolver.init(allocator, self.entries, options);
         }

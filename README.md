@@ -32,7 +32,7 @@ In `build.zig`, import the `keymap` module:
 ## Usage
 
 Define contexts, actions, and their default keys.
-Provide `allocator`, `io` (`std.Io`), monotonic milliseconds named `now_ms`, and a [libvaxis](https://github.com/rockorager/libvaxis) key event named `key`:
+Assume `allocator`, `io` (`std.Io`), `now_ms` (monotonic milliseconds), and a [libvaxis](https://github.com/rockorager/libvaxis) key event `key`:
 
 ```zig
 const std = @import("std");
@@ -84,7 +84,7 @@ const label = bindings.hint(.global, .quit);
 `context_groups` lists contexts that can be active together.  
 `loadWithOptions` expands `Mod` for the chosen `.platform`.  
 On macOS, `Mod+s` matches Super.  
-The terminal must deliver that modifier in its key event; the OS or terminal may intercept a shortcut first.
+The OS or terminal may not send `Mod+s` to the app.
 
 `hint` returns the first shortcut label.  
 
@@ -101,10 +101,11 @@ An action in the JSON replaces its default keys.
 An empty array removes all keys for that action.  
 An omitted action keeps its default keys.  
 
-A key string can name successive presses, such as `g g`.  
-Create the resolver once and reuse it for each key event. `feed` matches single keys and sequences, so do not also call `resolve` for the same event.
-Call `advance` when time or active contexts change without a key event. Call `cancel` to clear a pending sequence.
-For bindings without sequences, `resolve` matches a single event without a resolver.
+`g g` means two key presses.
+
+Keep one resolver across key events. `feed` handles single keys and sequences. Do not also call `resolve` for the same event.
+Call `advance` without a key event to check timeouts or context changes. `cancel` clears pending input.
+With only single keys, `resolve` also works.
 
 ## Development
 
