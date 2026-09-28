@@ -1,5 +1,8 @@
 //! zig-keymap maps keys to actions in Zig terminal applications.
 //!
+//! The hosted API documentation follows `main` and may include unreleased changes.
+//! Use a release tag's README for that version's API.
+//!
 //! Define defaults in Zig, then load them with optional JSON.
 //!
 //! ```zig
