@@ -43,13 +43,3 @@ jobs:
         run: zig fmt --check build.zig build.zig.zon src e2e
       - name: Build API documentation
         run: zig build docs -Doptimize=Debug
-  # Branch rules require a check named test.
-  test:
-    if: always()
-    needs: [platform, format-docs]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check CI results
-        run: |
-          test "${{ needs.platform.result }}" = success
-          test "${{ needs.format-docs.result }}" = success
