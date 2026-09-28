@@ -16,7 +16,7 @@ zig-keymap requires Zig `0.16.0` and has no external dependencies.
 Add `zig_keymap` to `build.zig.zon`:
 
    ```sh
-   zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#v0.1.0"
+   zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#v0.2.0"
    ```
 
 In `build.zig`, import the `keymap` module:
