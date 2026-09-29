@@ -144,6 +144,7 @@ pub const Key = union(enum) {
 };
 
 /// One key and its modifiers in a binding.\
+/// A receiver compares it with one input event.\
 /// For `Ctrl+Enter`, `key` is `.{ .named = .enter }` and `modifiers.ctrl` is `true`.
 pub const KeyPress = struct {
     /// Character or named key to match.
