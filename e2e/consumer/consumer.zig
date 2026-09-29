@@ -17,8 +17,8 @@ test "consumer loads JSON without external dependencies" {
     , .{ .platform = .macos, .display_style = .macos })).bindings;
     defer bindings.deinit();
     try std.testing.expectEqualStrings("Ctrl+q", bindings.hint(.global, .quit));
-    // Applications inspecting bindings need Keyboard without terminal dependencies.
-    try std.testing.expectEqual(keymap.Keyboard{
+    // Applications inspecting bindings need a public key type without terminal dependencies.
+    try std.testing.expectEqual(keymap.KeyPress{
         .key = .{ .character = 'q' },
         .modifiers = .{ .ctrl = true },
     }, bindings.keys(.global, .quit)[0][0]);

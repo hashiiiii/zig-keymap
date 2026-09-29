@@ -1,4 +1,4 @@
-const Keyboard = @import("key.zig").Keyboard;
+const KeyPress = @import("key.zig").KeyPress;
 
 /// Matcher for one libvaxis key event.\
 /// Pass it to `Bindings.Receiver.receive`.\
@@ -14,7 +14,7 @@ fn Matcher(comptime NativeKey: type) type {
         key: NativeKey,
 
         /// Returns `true` when the event matches `spec` under the event's own rules.
-        pub fn matches(self: @This(), spec: Keyboard) bool {
+        pub fn matches(self: @This(), spec: KeyPress) bool {
             const codepoint = switch (spec.key) {
                 .character => |cp| cp,
                 .named => |named| switch (named) {
@@ -52,8 +52,8 @@ test "vaxisMatcher preserves native text and shifted codepoint matching" {
     // Terminal protocols encode shifted characters differently.
     const testing = @import("std").testing;
     const Key = @import("vaxis").Key;
-    try testing.expect(vaxisMatcher(Key{ .codepoint = 'v', .mods = .{ .shift = true } }).matches(try Keyboard.parse("Shift+v")));
-    try testing.expect(vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } }).matches(try Keyboard.parse(":")));
-    try testing.expect(vaxisMatcher(Key{ .codepoint = 'v', .shifted_codepoint = 'V', .mods = .{ .shift = true } }).matches(try Keyboard.parse("V")));
-    try testing.expect(!vaxisMatcher(Key{ .codepoint = 'v' }).matches(try Keyboard.parse("Shift+v")));
+    try testing.expect(vaxisMatcher(Key{ .codepoint = 'v', .mods = .{ .shift = true } }).matches(try KeyPress.parse("Shift+v")));
+    try testing.expect(vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } }).matches(try KeyPress.parse(":")));
+    try testing.expect(vaxisMatcher(Key{ .codepoint = 'v', .shifted_codepoint = 'V', .mods = .{ .shift = true } }).matches(try KeyPress.parse("V")));
+    try testing.expect(!vaxisMatcher(Key{ .codepoint = 'v' }).matches(try KeyPress.parse("Shift+v")));
 }

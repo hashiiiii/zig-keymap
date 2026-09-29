@@ -7,7 +7,7 @@
 
 zig-keymap maps keys to actions in Zig terminal applications.  
 Applications define defaults in Zig, and users can change them with JSON configuration.  
-Bindings support platform modifiers, shortcut labels, and sequences of key presses.
+Bindings support platform modifiers, shortcut labels, and successive key presses.
 
 ## Installation
 
@@ -102,7 +102,7 @@ An empty array removes all keys for that action.
 An omitted action keeps its default keys.  
 
 `g g` means two key presses. `keys()` returns every binding for an action.
-Each result has one or more presses. `keys()[0][0]` is the first press.
+Each result has one or more `KeyPress` values. `keys()[0][0]` is the first press.
 
 Keep one receiver for each input stream, such as a window. Call `receive` for each key event.
 Call `advance` without a key event to check timeouts or context changes. `cancel` clears pending input.

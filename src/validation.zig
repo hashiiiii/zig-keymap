@@ -1,8 +1,8 @@
 const std = @import("std");
 const key_module = @import("key.zig");
-const Keyboard = key_module.Keyboard;
+const KeyPress = key_module.KeyPress;
 const Platform = key_module.Platform;
-const sequence = @import("sequence.zig");
+const key_lists = @import("keys.zig");
 
 /// True when `a` and `b` can be active together.\
 /// A context always overlaps itself.
@@ -71,7 +71,7 @@ fn validatePlatform(comptime Context: type, comptime definition: anytype, compti
             const current = parseShortcut(expression, platform);
             for (binding.keys[0..expression_index]) |previous_expression| {
                 const previous = parseShortcut(previous_expression, platform);
-                if (previous.len != current.len and sequence.overlaps(previous.keys[0..previous.len], current.keys[0..current.len])) {
+                if (previous.len != current.len and key_lists.overlaps(previous.keys[0..previous.len], current.keys[0..current.len])) {
                     return std.fmt.comptimePrint("Shortcut prefix collision between '{s}.{s}' shortcuts '{s}' and '{s}' on {s}", .{
                         @tagName(binding.context),
                         @tagName(binding.action),
@@ -86,7 +86,7 @@ fn validatePlatform(comptime Context: type, comptime definition: anytype, compti
                 if (!canOverlap(Context, definition.context_groups, binding.context, other.context)) continue;
                 for (other.keys) |other_expression| {
                     const other_shortcut = parseShortcut(other_expression, platform);
-                    if (sequence.overlaps(current.keys[0..current.len], other_shortcut.keys[0..other_shortcut.len])) {
+                    if (key_lists.overlaps(current.keys[0..current.len], other_shortcut.keys[0..other_shortcut.len])) {
                         return std.fmt.comptimePrint("Key collision between '{s}.{s}' shortcut '{s}' and '{s}.{s}' shortcut '{s}' on {s}", .{
                             @tagName(binding.context),
                             @tagName(binding.action),
@@ -106,7 +106,7 @@ fn validatePlatform(comptime Context: type, comptime definition: anytype, compti
 
 fn ParsedShortcut(comptime capacity: usize) type {
     return struct {
-        keys: [capacity]Keyboard = undefined,
+        keys: [capacity]KeyPress = undefined,
         len: usize = 0,
         invalid_step: ?[]const u8 = null,
     };
@@ -114,9 +114,9 @@ fn ParsedShortcut(comptime capacity: usize) type {
 
 fn parseShortcut(comptime expression: []const u8, comptime platform: Platform) ParsedShortcut(expression.len) {
     var result: ParsedShortcut(expression.len) = .{};
-    var steps = sequence.Steps.init(expression);
+    var steps = key_lists.Steps.init(expression);
     while (steps.next()) |step| {
-        const key = Keyboard.parseForPlatform(step, platform) catch {
+        const key = KeyPress.parseForPlatform(step, platform) catch {
             result.invalid_step = step;
             return result;
         };

@@ -161,11 +161,11 @@ test "sequence steps expand Mod and aliases for each selected platform" {
     , .{ .platform = .windows, .display_style = .windows })).bindings;
     defer windows.deinit();
     try testing.expectEqualStrings("Ctrl+Alt+b Ctrl+n", windows.hint(.list, .next));
-    try testing.expectEqual(keymap.Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, windows.keys(.list, .next)[0][1]);
+    try testing.expectEqual(keymap.KeyPress{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, windows.keys(.list, .next)[0][1]);
     var linux = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .linux, .display_style = .common })).bindings;
     defer linux.deinit();
     try testing.expectEqualStrings("Ctrl+Alt+b Ctrl+n", linux.hint(.list, .next));
-    try testing.expectEqual(keymap.Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, linux.keys(.list, .next)[0][1]);
+    try testing.expectEqual(keymap.KeyPress{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, linux.keys(.list, .next)[0][1]);
 }
 
 test "native sequence prefixes retain active context priority" {

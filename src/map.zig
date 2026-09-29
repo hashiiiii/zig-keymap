@@ -1,10 +1,10 @@
 const std = @import("std");
 const testing = std.testing;
 const key_module = @import("key.zig");
-const Keyboard = key_module.Keyboard;
+const KeyPress = key_module.KeyPress;
 const Platform = key_module.Platform;
 const DisplayStyle = key_module.DisplayStyle;
-const sequence = @import("sequence.zig");
+const key_lists = @import("keys.zig");
 const validation = @import("validation.zig");
 
 /// A problem found while loading bindings.\
@@ -63,7 +63,7 @@ pub fn Bindings(
     return struct {
         const Self = @This();
         /// State for matching key presses in one input stream.
-        pub const Receiver = sequence.Receiver(Context, Action);
+        pub const Receiver = key_lists.Receiver(Context, Action);
         /// `Default` assigns default key strings to one context and action.
         pub const Default = struct {
             /// Context where this default applies.
@@ -72,7 +72,7 @@ pub fn Bindings(
             action: Action,
             /// Key strings for this action, such as `Down` or `Ctrl+b n`.\
             /// Separate successive presses with spaces.\
-            /// Use `Space` for a space inside a sequence.\
+            /// Use `Space` for a space inside a key_lists.\
             /// An empty slice declares no default keys.
             keys: []const []const u8,
         };
@@ -115,7 +115,7 @@ pub fn Bindings(
             context: Context,
             action: Action,
             /// Parsed key lists returned by `keys`, including successive presses.
-            keys: []const []const Keyboard,
+            keys: []const []const KeyPress,
             /// First label returned by `hint`, or an empty string.
             hint: []const u8,
         };
@@ -203,23 +203,23 @@ pub fn Bindings(
                     break :blk context.object.get(@tagName(binding.action));
                 } else null;
                 const count = if (override) |value| value.array.items.len else binding.keys.len;
-                const parsed_keys = try storage.alloc([]const Keyboard, count);
+                const parsed_keys = try storage.alloc([]const KeyPress, count);
                 for (parsed_keys, 0..) |*shortcut, key_index| {
                     const expression = if (override) |value| value.array.items[key_index].string else binding.keys[key_index];
-                    var steps = sequence.Steps.init(expression);
-                    var parsed: std.ArrayList(Keyboard) = .empty;
+                    var steps = key_lists.Steps.init(expression);
+                    var parsed: std.ArrayList(KeyPress) = .empty;
                     while (steps.next()) |step| {
                         const parsed_step = if (options.platform) |platform|
-                            Keyboard.parseForPlatform(step, platform)
+                            KeyPress.parseForPlatform(step, platform)
                         else
-                            Keyboard.parse(step);
+                            KeyPress.parse(step);
                         const key = parsed_step catch return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
                         try parsed.append(storage, key);
                     }
                     if (parsed.items.len == 0) return .{ .invalid = Diagnostic.init(.invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(binding.context), @tagName(binding.action) }) };
                     shortcut.* = try parsed.toOwnedSlice(storage);
                     for (parsed_keys[0..key_index]) |previous| {
-                        if (previous.len != shortcut.len and sequence.overlaps(previous, shortcut.*)) return .{ .invalid = Diagnostic.init(.collision, "Prefix collision for '{s}.{s}'", .{ @tagName(binding.context), @tagName(binding.action) }) };
+                        if (previous.len != shortcut.len and key_lists.overlaps(previous, shortcut.*)) return .{ .invalid = Diagnostic.init(.collision, "Prefix collision for '{s}.{s}'", .{ @tagName(binding.context), @tagName(binding.action) }) };
                     }
                 }
                 var label_buffer: [96]u8 = undefined;
@@ -237,7 +237,7 @@ pub fn Bindings(
                     if (!validation.canOverlap(Context, definition.context_groups, a.context, b.context)) continue;
                     for (a.keys) |ak| {
                         for (b.keys) |bk| {
-                            if (sequence.overlaps(ak, bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
+                            if (key_lists.overlaps(ak, bk)) return .{ .invalid = Diagnostic.init(.collision, "Key collision between '{s}.{s}' and '{s}.{s}'", .{ @tagName(a.context), @tagName(a.action), @tagName(b.context), @tagName(b.action) }) };
                         }
                     }
                 }
@@ -249,7 +249,7 @@ pub fn Bindings(
         /// Returns every key binding for the action.\
         /// Each result is one or more key presses.\
         /// The bindings own the result until `deinit`.
-        pub fn keys(self: *const Self, context: Context, action: Action) []const []const Keyboard {
+        pub fn keys(self: *const Self, context: Context, action: Action) []const []const KeyPress {
             for (self.entries) |entry| {
                 if (entry.context == context and entry.action == action) return entry.keys;
             }
@@ -291,8 +291,8 @@ test "load uses default aliases and the first key as the hint" {
     defer map.deinit();
 
     try testing.expectEqual(@as(usize, 2), map.keys(.tree, .move_down).len);
-    try testing.expectEqual(Keyboard{ .key = .{ .named = .down } }, map.keys(.tree, .move_down)[0][0]);
-    try testing.expectEqual(Keyboard{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1][0]);
+    try testing.expectEqual(KeyPress{ .key = .{ .named = .down } }, map.keys(.tree, .move_down)[0][0]);
+    try testing.expectEqual(KeyPress{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1][0]);
     try testing.expectEqualStrings("Down", map.hint(.tree, .move_down));
     try testing.expectEqual(@as(usize, 0), map.keys(.tree, .move_up).len);
     try testing.expectEqualStrings("", map.hint(.tree, .move_up));
@@ -448,8 +448,8 @@ test "load owns bindings after the input is freed" {
         }, text)).bindings;
     };
     defer map.deinit();
-    try testing.expectEqual(Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, map.keys(.tree, .move_down)[0][0]);
-    try testing.expectEqual(Keyboard{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1][0]);
+    try testing.expectEqual(KeyPress{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, map.keys(.tree, .move_down)[0][0]);
+    try testing.expectEqual(KeyPress{ .key = .{ .character = 'j' } }, map.keys(.tree, .move_down)[1][0]);
     try testing.expectEqualStrings("Ctrl+n", map.hint(.tree, .move_down));
 }
 
@@ -468,8 +468,8 @@ test "loadWithOptions expands Mod in defaults and overrides and styles hints" {
     }, override_text, .{ .platform = .macos, .display_style = .macos })).bindings;
     defer map.deinit();
 
-    try testing.expectEqual(Keyboard{ .key = .{ .character = 'K' }, .modifiers = .{ .super = true } }, map.keys(.tree, .move_down)[0][0]);
-    try testing.expectEqual(Keyboard{ .key = .{ .character = 'q' }, .modifiers = .{ .super = true } }, map.keys(.tree, .quit)[0][0]);
+    try testing.expectEqual(KeyPress{ .key = .{ .character = 'K' }, .modifiers = .{ .super = true } }, map.keys(.tree, .move_down)[0][0]);
+    try testing.expectEqual(KeyPress{ .key = .{ .character = 'q' }, .modifiers = .{ .super = true } }, map.keys(.tree, .quit)[0][0]);
     try testing.expectEqualStrings("Command+K", map.hint(.tree, .move_down));
     try testing.expectEqualStrings("Command+q", map.hint(.tree, .quit));
 }

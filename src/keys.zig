@@ -1,8 +1,8 @@
 const std = @import("std");
-const Keyboard = @import("key.zig").Keyboard;
+const KeyPress = @import("key.zig").KeyPress;
 
 /// True when the key lists are equal or one is a prefix of the other.
-pub fn overlaps(a: []const Keyboard, b: []const Keyboard) bool {
+pub fn overlaps(a: []const KeyPress, b: []const KeyPress) bool {
     for (a[0..@min(a.len, b.len)], b[0..@min(a.len, b.len)]) |ak, bk| {
         if (!ak.equivalent(bk)) return false;
     }
@@ -44,7 +44,7 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
         const Candidate = struct {
             context: Context,
             action: Action,
-            keys: []const Keyboard,
+            keys: []const KeyPress,
             next_step: ?usize = null,
         };
 
