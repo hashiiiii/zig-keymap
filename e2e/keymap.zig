@@ -144,6 +144,7 @@ test "sequence steps expand Mod and aliases for each selected platform" {
     // Platform expansion must apply to every shortcut step in defaults and overrides.
     const Action = enum { next };
     const Map = keymap.Bindings(enum { list }, Action);
+    // Consumers must be able to refer to the public `ModifierName` type.
     const modifier_name: keymap.ModifierName = .macos;
     const definition: Map.Definition = .{
         .defaults = &.{.{ .context = .list, .action = .next, .keys = &.{"Mod+Option+b Mod+n"} }},
