@@ -70,7 +70,7 @@ var bindings = switch (try Bindings.loadWithOptions(allocator, definition, keyma
 };
 defer bindings.deinit();
 
-var resolver = try bindings.sequenceResolver(allocator, .{});
+var resolver = try bindings.resolver(allocator, .{});
 defer resolver.deinit();
 const action: ?Action = switch (resolver.feed(&.{ .global, .list }, keymap.vaxisMatcher(key), now_ms)) {
     .action => |value| value,
@@ -101,11 +101,11 @@ An action in the JSON replaces its default keys.
 An empty array removes all keys for that action.  
 An omitted action keeps its default keys.  
 
-`g g` means two key presses.
+`g g` means two key presses. `keys()` returns every binding for an action.
+Each result holds one or more key presses.
 
-Keep one resolver across key events. `feed` handles single keys and sequences. Do not also call `resolve` for the same event.
+Keep one resolver across key events. Call `feed` for each event.
 Call `advance` without a key event to check timeouts or context changes. `cancel` clears pending input.
-With only single keys, `resolve` also works.
 
 ## Development
 

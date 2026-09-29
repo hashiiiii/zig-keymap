@@ -3,20 +3,7 @@ const testing = std.testing;
 const keymap = @import("keymap");
 const Key = @import("vaxis").Key;
 
-test "sequence defaults load without firing on the first key" {
-    // A partial sequence must not invoke an action through the single-event API.
-    const Map = keymap.Bindings(enum { list }, enum { top });
-    const loaded = try Map.load(testing.allocator, .{
-        .defaults = &.{.{ .context = .list, .action = .top, .keys = &.{"g g"} }},
-        .context_groups = &.{},
-    }, null);
-    try testing.expect(loaded == .bindings);
-    var map = loaded.bindings;
-    defer map.deinit();
-    try testing.expect(map.resolve(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'g' })) == null);
-}
-
-test "sequence resolver completes shared prefixes and preserves single shortcuts" {
+test "one resolver matches single keys and sequences" {
     // Tracking all matching prefixes keeps g g and g e independently reachable.
     const Action = enum { top, end, quit };
     const Map = keymap.Bindings(enum { list }, Action);
@@ -29,7 +16,7 @@ test "sequence resolver completes shared prefixes and preserves single shortcuts
         .context_groups = &.{},
     }, null)).bindings;
     defer map.deinit();
-    var resolver = try map.sequenceResolver(testing.allocator, .{ .timeout_ms = 100 });
+    var resolver = try map.resolver(testing.allocator, .{ .timeout_ms = 100 });
     defer resolver.deinit();
     try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'g' }), 0) == .pending);
     try testing.expectEqual(Action.end, resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'e' }), 1).action);
@@ -37,7 +24,8 @@ test "sequence resolver completes shared prefixes and preserves single shortcuts
     try testing.expectEqual(Action.top, resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'g' }), 3).action);
     try testing.expectEqual(Action.quit, resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'q' }), 4).action);
     try testing.expectEqualStrings("g g", map.hint(.list, .top));
-    try testing.expectEqual(@as(usize, 2), map.sequences(.list, .top)[0].keys.len);
+    try testing.expectEqual(@as(usize, 2), map.keys(.list, .top)[0].keys.len);
+    try testing.expectEqual(@as(usize, 1), map.keys(.list, .quit)[0].keys.len);
 }
 
 test "cancellation timeout context removal and mismatch clear pending input" {
@@ -52,7 +40,7 @@ test "cancellation timeout context removal and mismatch clear pending input" {
         .context_groups = &.{},
     }, null)).bindings;
     defer map.deinit();
-    var resolver = try map.sequenceResolver(testing.allocator, .{ .timeout_ms = 10 });
+    var resolver = try map.resolver(testing.allocator, .{ .timeout_ms = 10 });
     defer resolver.deinit();
     const prefix = keymap.vaxisMatcher(Key{ .codepoint = 'b', .mods = .{ .ctrl = true } });
     try testing.expect(resolver.feed(&.{.list}, prefix, 0) == .pending);
@@ -86,7 +74,7 @@ test "sequence overrides preserve omitted defaults and reject action prefixes" {
     defer map.deinit();
     try testing.expectEqualStrings("g g", map.hint(.list, .top));
     try testing.expectEqualStrings("g n", map.hint(.list, .next));
-    try testing.expectEqual(@as(usize, 0), map.sequences(.list, .quit).len);
+    try testing.expectEqual(@as(usize, 0), map.keys(.list, .quit).len);
     const prefix = (try Map.load(testing.allocator, definition,
         \\{"list":{"next":["g"]}}
     )).invalid;
@@ -103,7 +91,7 @@ test "sequence overrides preserve omitted defaults and reject action prefixes" {
         \\{"list":{"top":[],"next":[]}}
     )).bindings;
     defer disabled.deinit();
-    var resolver = try disabled.sequenceResolver(testing.allocator, .{});
+    var resolver = try disabled.resolver(testing.allocator, .{});
     defer resolver.deinit();
     try testing.expectEqualStrings("", disabled.hint(.list, .top));
     try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'g' }), 0) == .none);
@@ -121,14 +109,14 @@ test "three-step sequences restart timeouts and preserve literal space shortcuts
         .context_groups = &.{},
     }, null)).bindings;
     defer map.deinit();
-    var resolver = try map.sequenceResolver(testing.allocator, .{ .timeout_ms = 10 });
+    var resolver = try map.resolver(testing.allocator, .{ .timeout_ms = 10 });
     defer resolver.deinit();
     try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'g' }), 0) == .pending);
     // Repeating a context must not consume one event as two sequence steps.
     try testing.expect(resolver.feed(&.{ .list, .list }, keymap.vaxisMatcher(Key{ .codepoint = 'g' }), 9) == .pending);
     try testing.expect(resolver.advance(&.{.list}, 10) == .pending);
     try testing.expectEqual(Action.command, resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'e' }), 18).action);
-    try testing.expectEqual(Action.space, map.resolve(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = ' ', .mods = .{ .ctrl = true } })).?);
+    try testing.expectEqual(Action.space, resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = ' ', .mods = .{ .ctrl = true } }), 19).action);
 }
 
 test "sequence steps expand Mod and aliases for each selected platform" {
@@ -142,7 +130,7 @@ test "sequence steps expand Mod and aliases for each selected platform" {
     var mac = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .macos, .display_style = .macos })).bindings;
     defer mac.deinit();
     try testing.expectEqualStrings("Option+Command+b Command+n", mac.hint(.list, .next));
-    var resolver = try mac.sequenceResolver(testing.allocator, .{ .timeout_ms = null });
+    var resolver = try mac.resolver(testing.allocator, .{ .timeout_ms = null });
     defer resolver.deinit();
     try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'b', .mods = .{ .alt = true, .super = true } }), 0) == .pending);
     try testing.expect(resolver.advance(&.{.list}, 100000) == .pending);
@@ -152,11 +140,11 @@ test "sequence steps expand Mod and aliases for each selected platform" {
     , .{ .platform = .windows, .display_style = .windows })).bindings;
     defer windows.deinit();
     try testing.expectEqualStrings("Ctrl+Alt+b Ctrl+n", windows.hint(.list, .next));
-    try testing.expectEqual(keymap.Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, windows.sequences(.list, .next)[0].keys[1]);
+    try testing.expectEqual(keymap.Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, windows.keys(.list, .next)[0].keys[1]);
     var linux = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .linux, .display_style = .common })).bindings;
     defer linux.deinit();
     try testing.expectEqualStrings("Ctrl+Alt+b Ctrl+n", linux.hint(.list, .next));
-    try testing.expectEqual(keymap.Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, linux.sequences(.list, .next)[0].keys[1]);
+    try testing.expectEqual(keymap.Keyboard{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, linux.keys(.list, .next)[0].keys[1]);
 }
 
 test "native sequence prefixes retain active context priority" {
@@ -171,7 +159,7 @@ test "native sequence prefixes retain active context priority" {
         .context_groups = &.{&.{ .global, .list }},
     }, null)).bindings;
     defer map.deinit();
-    var resolver = try map.sequenceResolver(testing.allocator, .{});
+    var resolver = try map.resolver(testing.allocator, .{});
     defer resolver.deinit();
     const colon = keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } });
     try testing.expect(resolver.feed(&.{ .global, .list }, colon, 0) == .pending);
@@ -193,7 +181,7 @@ test "native sequence prefixes retain default declaration priority" {
         .context_groups = &.{},
     }, null)).bindings;
     defer map.deinit();
-    var resolver = try map.sequenceResolver(testing.allocator, .{});
+    var resolver = try map.resolver(testing.allocator, .{});
     defer resolver.deinit();
     try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } }), 0) == .pending);
     try testing.expect(resolver.feed(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'x' }), 1) == .pending);
@@ -218,13 +206,15 @@ test "partial configuration resolves native keys and keeps modal actions exclusi
     )).bindings;
     defer map.deinit();
 
-    try testing.expectEqual(Action.move_down, map.resolve(&.{ .global, .tree }, keymap.vaxisMatcher(Key{ .codepoint = 'n', .mods = .{ .ctrl = true } })).?);
-    try testing.expectEqual(@as(?Action, null), map.resolve(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = 'j' })));
-    try testing.expectEqual(@as(?Action, null), map.resolve(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = Key.down })));
-    try testing.expectEqual(Action.quit, map.resolve(&.{ .global, .tree }, keymap.vaxisMatcher(Key{ .codepoint = 'q' })).?);
-    try testing.expectEqual(Action.move_up, map.resolve(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = Key.up })).?);
-    try testing.expectEqual(Action.cancel, map.resolve(&.{.dialog}, keymap.vaxisMatcher(Key{ .codepoint = 'q' })).?);
-    try testing.expectEqual(Action.cancel, map.resolve(&.{.dialog}, keymap.vaxisMatcher(Key{ .codepoint = Key.escape })).?);
+    var resolver = try map.resolver(testing.allocator, .{});
+    defer resolver.deinit();
+    try testing.expectEqual(Action.move_down, resolver.feed(&.{ .global, .tree }, keymap.vaxisMatcher(Key{ .codepoint = 'n', .mods = .{ .ctrl = true } }), 0).action);
+    try testing.expect(resolver.feed(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = 'j' }), 1) == .none);
+    try testing.expect(resolver.feed(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = Key.down }), 2) == .none);
+    try testing.expectEqual(Action.quit, resolver.feed(&.{ .global, .tree }, keymap.vaxisMatcher(Key{ .codepoint = 'q' }), 3).action);
+    try testing.expectEqual(Action.move_up, resolver.feed(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = Key.up }), 4).action);
+    try testing.expectEqual(Action.cancel, resolver.feed(&.{.dialog}, keymap.vaxisMatcher(Key{ .codepoint = 'q' }), 5).action);
+    try testing.expectEqual(Action.cancel, resolver.feed(&.{.dialog}, keymap.vaxisMatcher(Key{ .codepoint = Key.escape }), 6).action);
     try testing.expectEqualStrings("Ctrl+n", map.hint(.tree, .move_down));
     try testing.expectEqualStrings("Up", map.hint(.tree, .move_up));
 }
@@ -241,8 +231,10 @@ test "empty overrides disable every alias and clear the hint" {
     )).bindings;
     defer map.deinit();
 
-    try testing.expectEqual(@as(?Action, null), map.resolve(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = 'j' })));
-    try testing.expectEqual(@as(?Action, null), map.resolve(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = Key.down })));
+    var resolver = try map.resolver(testing.allocator, .{});
+    defer resolver.deinit();
+    try testing.expect(resolver.feed(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = 'j' }), 0) == .none);
+    try testing.expect(resolver.feed(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = Key.down }), 1) == .none);
     try testing.expectEqual(@as(usize, 0), map.keys(.tree, .move_down).len);
     try testing.expectEqualStrings("", map.hint(.tree, .move_down));
 }
@@ -260,8 +252,10 @@ test "native matching overlaps resolve in active context order" {
     }, null)).bindings;
     defer map.deinit();
 
-    try testing.expectEqual(Action.quit, map.resolve(&.{ .global, .tree }, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } })).?);
-    try testing.expectEqual(Action.move_down, map.resolve(&.{ .tree, .global }, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } })).?);
+    var resolver = try map.resolver(testing.allocator, .{});
+    defer resolver.deinit();
+    try testing.expectEqual(Action.quit, resolver.feed(&.{ .global, .tree }, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } }), 0).action);
+    try testing.expectEqual(Action.move_down, resolver.feed(&.{ .tree, .global }, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } }), 1).action);
 }
 
 test "native matching overlaps resolve in default declaration order" {
@@ -277,7 +271,9 @@ test "native matching overlaps resolve in default declaration order" {
     }, null)).bindings;
     defer map.deinit();
 
-    try testing.expectEqual(Action.move_up, map.resolve(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } })).?);
+    var resolver = try map.resolver(testing.allocator, .{});
+    defer resolver.deinit();
+    try testing.expectEqual(Action.move_up, resolver.feed(&.{.tree}, keymap.vaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } }), 0).action);
 }
 
 test "platform modifier aliases collide across overlapping contexts" {

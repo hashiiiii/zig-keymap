@@ -21,7 +21,12 @@
 //! };
 //! defer bindings.deinit();
 //!
-//! const action = bindings.resolve(&.{.list}, keymap.vaxisMatcher(event));
+//! var resolver = try bindings.resolver(allocator, .{});
+//! defer resolver.deinit();
+//! const action: ?Action = switch (resolver.feed(&.{.list}, keymap.vaxisMatcher(event), now_ms)) {
+//!     .action => |value| value,
+//!     .pending, .none => null,
+//! };
 //! ```
 
 const key = @import("key.zig");

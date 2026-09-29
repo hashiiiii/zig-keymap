@@ -43,7 +43,7 @@ pub const Steps = struct {
     }
 };
 
-/// State for matching successive events.\
+/// State for matching key events to actions.\
 /// `now_ms` is monotonic milliseconds supplied by the application.
 pub fn Resolver(comptime Context: type, comptime Action: type) type {
     return struct {
@@ -84,11 +84,11 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
         /// Creates a resolver over the bindings' shortcuts.
         pub fn init(allocator: std.mem.Allocator, entries: anytype, options: Options) std.mem.Allocator.Error!Self {
             var count: usize = 0;
-            for (entries) |entry| count += entry.sequences.len;
+            for (entries) |entry| count += entry.keys.len;
             const candidates = try allocator.alloc(Candidate, count);
             var index: usize = 0;
             for (entries) |entry| {
-                for (entry.sequences) |shortcut| {
+                for (entry.keys) |shortcut| {
                     candidates[index] = .{ .context = entry.context, .action = entry.action, .keys = shortcut.keys };
                     index += 1;
                 }
