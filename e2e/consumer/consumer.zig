@@ -14,7 +14,7 @@ test "consumer loads JSON without external dependencies" {
     comptime Map.validateDefaults(definition);
     var bindings = (try Map.loadWithOptions(std.testing.allocator, definition,
         \\{"global": {"quit": ["Ctrl+q"]}}
-    , .{ .platform = .macos, .display_style = .macos })).bindings;
+    , .{ .platform = .macos, .modifier_name = .macos })).bindings;
     defer bindings.deinit();
     try std.testing.expectEqualStrings("Ctrl+q", bindings.hint(.global, .quit));
     // Applications inspecting bindings need a public key type without terminal dependencies.

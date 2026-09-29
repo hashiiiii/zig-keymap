@@ -121,9 +121,9 @@ pub const Platform = enum {
     linux,
 };
 
-/// Modifier names used in shortcut labels.\
+/// Selects modifier names for shortcut labels.\
 /// Matching and collision checks stay the same.
-pub const DisplayStyle = enum {
+pub const ModifierName = enum {
     /// `Ctrl`, `Alt`, `Shift`, and `Super`.
     common,
     /// `Option` for Alt and `Command` for Super.
@@ -210,22 +210,22 @@ pub const KeyPress = struct {
     }
 
     /// Writes a label using common modifier names.\
-    /// The order is `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
+    /// Modifiers appear in `ctrl`, `alt`, `shift`, `super`, `meta`, `hyper` order.\
     /// Character keys keep their case.\
     /// The result refers to `buffer`.\
     /// Keep `buffer` alive and unchanged while using the result.
     pub fn format(self: KeyPress, buffer: *[96]u8) []const u8 {
-        return self.formatWithStyle(buffer, .common);
+        return self.formatWithModifierName(buffer, .common);
     }
 
-    /// Writes a label using `style` modifier names.\
-    /// The order is `Ctrl`, `Alt`, `Shift`, `Super`, `Meta`, `Hyper`.\
+    /// Writes a label using `modifier_name` for modifiers.\
+    /// Modifiers appear in `ctrl`, `alt`, `shift`, `super`, `meta`, `hyper` order.\
     /// Character keys keep their case.\
     /// A literal plus stays the final character.\
     /// The result refers to `buffer`.\
     /// Keep `buffer` alive and unchanged while using the result.
-    pub fn formatWithStyle(self: KeyPress, buffer: *[96]u8, style: DisplayStyle) []const u8 {
-        const labels = switch (style) {
+    pub fn formatWithModifierName(self: KeyPress, buffer: *[96]u8, modifier_name: ModifierName) []const u8 {
+        const labels = switch (modifier_name) {
             .common => .{ "Ctrl+", "Alt+", "Shift+", "Super+", "Meta+", "Hyper+" },
             .macos => .{ "Ctrl+", "Option+", "Shift+", "Command+", "Meta+", "Hyper+" },
             .windows => .{ "Ctrl+", "Alt+", "Shift+", "Win+", "Meta+", "Hyper+" },
@@ -373,21 +373,21 @@ test "format produces canonical hints for named and character keys" {
     try testing.expectEqualStrings("Ctrl++", (KeyPress{ .key = .{ .character = '+' }, .modifiers = .{ .ctrl = true } }).format(&buffer));
 }
 
-test "formatWithStyle changes modifier names and keeps key spelling" {
-    // Labels should reflect the selected keyboard without changing key matching.
+test "formatWithModifierName changes modifier names and keeps key spelling" {
+    // Labels must use the selected modifier names without changing key matching.
     const key_press = KeyPress{
         .key = .{ .character = 'K' },
         .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true },
     };
     var buffer: [96]u8 = undefined;
-    try testing.expectEqualStrings("Ctrl+Alt+Shift+Super+K", key_press.formatWithStyle(&buffer, .common));
-    try testing.expectEqualStrings("Ctrl+Option+Shift+Command+K", key_press.formatWithStyle(&buffer, .macos));
-    try testing.expectEqualStrings("Ctrl+Alt+Shift+Win+K", key_press.formatWithStyle(&buffer, .windows));
-    try testing.expectEqualStrings("Ctrl+Alt+Shift+Super+K", key_press.formatWithStyle(&buffer, .linux));
+    try testing.expectEqualStrings("Ctrl+Alt+Shift+Super+K", key_press.formatWithModifierName(&buffer, .common));
+    try testing.expectEqualStrings("Ctrl+Option+Shift+Command+K", key_press.formatWithModifierName(&buffer, .macos));
+    try testing.expectEqualStrings("Ctrl+Alt+Shift+Win+K", key_press.formatWithModifierName(&buffer, .windows));
+    try testing.expectEqualStrings("Ctrl+Alt+Shift+Super+K", key_press.formatWithModifierName(&buffer, .linux));
     try testing.expectEqualStrings("Option+Command++", (KeyPress{
         .key = .{ .character = '+' },
         .modifiers = .{ .alt = true, .super = true },
-    }).formatWithStyle(&buffer, .macos));
+    }).formatWithModifierName(&buffer, .macos));
     try testing.expect(key_press.equivalent(try KeyPress.parse("Ctrl+Option+Shift+Command+K")));
 }
 

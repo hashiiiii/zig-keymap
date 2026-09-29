@@ -60,7 +60,7 @@ defer allocator.free(keymap_json);
 
 var bindings = switch (try Bindings.loadWithOptions(allocator, definition, keymap_json, .{
     .platform = .macos,
-    .display_style = .macos,
+    .modifier_name = .macos,
 })) {
     .bindings => |value| value,
     .invalid => |diagnostic| {
@@ -85,6 +85,8 @@ const label = bindings.hint(.global, .quit);
 `loadWithOptions` expands `Mod` for the chosen `.platform`.  
 On macOS, `Mod+s` matches Super.  
 The OS or terminal may not send `Mod+s` to the app.
+
+`modifier_name` selects the modifier names in `hint` labels. It does not change matching.
 
 `hint` returns the first shortcut label.  
 

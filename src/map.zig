@@ -3,7 +3,7 @@ const testing = std.testing;
 const key_module = @import("key.zig");
 const KeyPress = key_module.KeyPress;
 const Platform = key_module.Platform;
-const DisplayStyle = key_module.DisplayStyle;
+const ModifierName = key_module.ModifierName;
 const key_lists = @import("keys.zig");
 const validation = @import("validation.zig");
 
@@ -99,9 +99,9 @@ pub fn Bindings(
             /// Client platform used to resolve `Mod`.\
             /// `null` rejects `Mod` and does not read the build target.
             platform: ?Platform = null,
-            /// Names used by `hint`.\
+            /// Modifier names used by `hint`.\
             /// This does not change matching or collision checks.
-            display_style: DisplayStyle = .common,
+            modifier_name: ModifierName = .common,
         };
         /// Loaded bindings, or a diagnostic.
         pub const LoadResult = union(enum) {
@@ -138,10 +138,10 @@ pub fn Bindings(
             return loadWithOptions(allocator, definition, text, .{});
         }
 
-        /// Creates bindings with a client platform and a label style.\
+        /// Creates bindings with a client platform and modifier names.\
         /// `platform` resolves `Mod` in defaults and JSON before conflict checks.\
         /// A `null` platform accepts only concrete modifiers.\
-        /// `display_style` changes `hint` labels only.\
+        /// `modifier_name` changes `hint` labels only.\
         /// JSON replacement rules match `load`.\
         /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting shortcuts.\
         /// The bindings own their keys and labels until `deinit`.\
@@ -227,7 +227,7 @@ pub fn Bindings(
                 if (parsed_keys.len != 0) {
                     for (parsed_keys[0], 0..) |key, step_index| {
                         if (step_index != 0) try label.append(storage, ' ');
-                        try label.appendSlice(storage, key.formatWithStyle(&label_buffer, options.display_style));
+                        try label.appendSlice(storage, key.formatWithModifierName(&label_buffer, options.modifier_name));
                     }
                 }
                 entries[index] = .{ .context = binding.context, .action = binding.action, .keys = parsed_keys, .hint = try label.toOwnedSlice(storage) };
@@ -453,7 +453,7 @@ test "load owns bindings after the input is freed" {
     try testing.expectEqualStrings("Ctrl+n", map.hint(.tree, .move_down));
 }
 
-test "loadWithOptions expands Mod in defaults and overrides and styles hints" {
+test "loadWithOptions expands Mod and uses selected modifier names in hints" {
     // Definitions and JSON must resolve portable modifiers with the same selected platform.
     const Map = Bindings(enum { tree }, enum { move_down, quit });
     const override_text =
@@ -465,7 +465,7 @@ test "loadWithOptions expands Mod in defaults and overrides and styles hints" {
             .{ .context = .tree, .action = .quit, .keys = &.{"q"} },
         },
         .context_groups = &.{},
-    }, override_text, .{ .platform = .macos, .display_style = .macos })).bindings;
+    }, override_text, .{ .platform = .macos, .modifier_name = .macos })).bindings;
     defer map.deinit();
 
     try testing.expectEqual(KeyPress{ .key = .{ .character = 'K' }, .modifiers = .{ .super = true } }, map.keys(.tree, .move_down)[0][0]);

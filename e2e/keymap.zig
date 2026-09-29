@@ -144,11 +144,12 @@ test "sequence steps expand Mod and aliases for each selected platform" {
     // Platform expansion must apply to every shortcut step in defaults and overrides.
     const Action = enum { next };
     const Map = keymap.Bindings(enum { list }, Action);
+    const modifier_name: keymap.ModifierName = .macos;
     const definition: Map.Definition = .{
         .defaults = &.{.{ .context = .list, .action = .next, .keys = &.{"Mod+Option+b Mod+n"} }},
         .context_groups = &.{},
     };
-    var mac = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .macos, .display_style = .macos })).bindings;
+    var mac = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .macos, .modifier_name = modifier_name })).bindings;
     defer mac.deinit();
     try testing.expectEqualStrings("Option+Command+b Command+n", mac.hint(.list, .next));
     var receiver = try mac.receiver(testing.allocator, .{ .timeout_ms = null });
@@ -158,11 +159,11 @@ test "sequence steps expand Mod and aliases for each selected platform" {
     try testing.expectEqual(Action.next, receiver.receive(&.{.list}, keymap.vaxisMatcher(Key{ .codepoint = 'n', .mods = .{ .super = true } }), 100001).action);
     var windows = (try Map.loadWithOptions(testing.allocator, definition,
         \\{"list":{"next":["Mod+Opt+b Mod+n"]}}
-    , .{ .platform = .windows, .display_style = .windows })).bindings;
+    , .{ .platform = .windows, .modifier_name = .windows })).bindings;
     defer windows.deinit();
     try testing.expectEqualStrings("Ctrl+Alt+b Ctrl+n", windows.hint(.list, .next));
     try testing.expectEqual(keymap.KeyPress{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, windows.keys(.list, .next)[0][1]);
-    var linux = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .linux, .display_style = .common })).bindings;
+    var linux = (try Map.loadWithOptions(testing.allocator, definition, null, .{ .platform = .linux, .modifier_name = .common })).bindings;
     defer linux.deinit();
     try testing.expectEqualStrings("Ctrl+Alt+b Ctrl+n", linux.hint(.list, .next));
     try testing.expectEqual(keymap.KeyPress{ .key = .{ .character = 'n' }, .modifiers = .{ .ctrl = true } }, linux.keys(.list, .next)[0][1]);
