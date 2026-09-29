@@ -21,9 +21,9 @@
 //! };
 //! defer bindings.deinit();
 //!
-//! var resolver = try bindings.resolver(allocator, .{});
-//! defer resolver.deinit();
-//! const action: ?Action = switch (resolver.feed(&.{.list}, keymap.vaxisMatcher(event), now_ms)) {
+//! var receiver = try bindings.receiver(allocator, .{});
+//! defer receiver.deinit();
+//! const action: ?Action = switch (receiver.receive(&.{.list}, keymap.vaxisMatcher(event), now_ms)) {
 //!     .action => |value| value,
 //!     .pending, .none => null,
 //! };
@@ -37,7 +37,6 @@ pub const NamedKey = key.NamedKey;
 pub const Modifiers = key.Modifiers;
 pub const Key = key.Key;
 pub const Keyboard = key.Keyboard;
-pub const Sequence = @import("sequence.zig").Sequence;
 pub const Platform = key.Platform;
 pub const DisplayStyle = key.DisplayStyle;
 pub const Diagnostic = map.Diagnostic;

@@ -1,20 +1,13 @@
 const std = @import("std");
 const Keyboard = @import("key.zig").Keyboard;
 
-/// One shortcut: one or more presses, in order.\
-/// The bindings that returned this value own `keys`.
-pub const Sequence = struct {
-    /// Presses in order. A single press is one shortcut.
-    keys: []const Keyboard,
-
-    /// True when the shortcuts are equal or one is a prefix of the other.
-    pub fn overlaps(a: Sequence, b: Sequence) bool {
-        for (a.keys[0..@min(a.keys.len, b.keys.len)], b.keys[0..@min(a.keys.len, b.keys.len)]) |ak, bk| {
-            if (!ak.equivalent(bk)) return false;
-        }
-        return true;
+/// True when the key lists are equal or one is a prefix of the other.
+pub fn overlaps(a: []const Keyboard, b: []const Keyboard) bool {
+    for (a[0..@min(a.len, b.len)], b[0..@min(a.len, b.len)]) |ak, bk| {
+        if (!ak.equivalent(bk)) return false;
     }
-};
+    return true;
+}
 
 /// Splits a shortcut into key expressions.\
 /// Use `Space` for a space inside a sequence.
@@ -45,7 +38,7 @@ pub const Steps = struct {
 
 /// State for matching key events to actions.\
 /// `now_ms` is monotonic milliseconds supplied by the application.
-pub fn Resolver(comptime Context: type, comptime Action: type) type {
+pub fn Receiver(comptime Context: type, comptime Action: type) type {
     return struct {
         const Self = @This();
         const Candidate = struct {
@@ -62,7 +55,7 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
             timeout_ms: ?u64 = 1000,
         };
 
-        /// Outcome of `feed` or `advance`.
+        /// Outcome of `receive` or `advance`.
         pub const Result = union(enum) {
             /// No shortcut matched.
             none,
@@ -81,7 +74,7 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
         /// Deadline of the current timeout, when one is active.
         deadline: ?u64 = null,
 
-        /// Creates a resolver over the bindings' shortcuts.
+        /// Creates input state over the bindings' shortcuts.
         pub fn init(allocator: std.mem.Allocator, entries: anytype, options: Options) std.mem.Allocator.Error!Self {
             var count: usize = 0;
             for (entries) |entry| count += entry.keys.len;
@@ -89,7 +82,7 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
             var index: usize = 0;
             for (entries) |entry| {
                 for (entry.keys) |shortcut| {
-                    candidates[index] = .{ .context = entry.context, .action = entry.action, .keys = shortcut.keys };
+                    candidates[index] = .{ .context = entry.context, .action = entry.action, .keys = shortcut };
                     index += 1;
                 }
             }
@@ -129,7 +122,7 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
         /// When shortcuts overlap, earlier active contexts win, then earlier declarations.\
         /// An earlier pending shortcut wins over a later completed one.\
         /// After `.pending`, the application decides whether to withhold that event from text input.
-        pub fn feed(self: *Self, active_contexts: []const Context, matcher: anytype, now_ms: u64) Result {
+        pub fn receive(self: *Self, active_contexts: []const Context, matcher: anytype, now_ms: u64) Result {
             if (self.advance(active_contexts, now_ms) == .pending) {
                 var pending = false;
                 for (active_contexts, 0..) |context, context_index| {
@@ -183,7 +176,7 @@ pub fn Resolver(comptime Context: type, comptime Action: type) type {
             self.deadline = if (self.options.timeout_ms) |timeout| now_ms +| timeout else null;
         }
 
-        /// Frees this resolver. Call it before freeing the bindings.
+        /// Frees this receiver. Call it before freeing the bindings.
         pub fn deinit(self: *Self) void {
             self.allocator.free(self.candidates);
             self.* = undefined;

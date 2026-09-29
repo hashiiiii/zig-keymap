@@ -71,7 +71,7 @@ fn validatePlatform(comptime Context: type, comptime definition: anytype, compti
             const current = parseShortcut(expression, platform);
             for (binding.keys[0..expression_index]) |previous_expression| {
                 const previous = parseShortcut(previous_expression, platform);
-                if (previous.len != current.len and sequence.Sequence.overlaps(asSequence(previous), asSequence(current))) {
+                if (previous.len != current.len and sequence.overlaps(previous.keys[0..previous.len], current.keys[0..current.len])) {
                     return std.fmt.comptimePrint("Shortcut prefix collision between '{s}.{s}' shortcuts '{s}' and '{s}' on {s}", .{
                         @tagName(binding.context),
                         @tagName(binding.action),
@@ -86,7 +86,7 @@ fn validatePlatform(comptime Context: type, comptime definition: anytype, compti
                 if (!canOverlap(Context, definition.context_groups, binding.context, other.context)) continue;
                 for (other.keys) |other_expression| {
                     const other_shortcut = parseShortcut(other_expression, platform);
-                    if (sequence.Sequence.overlaps(asSequence(current), asSequence(other_shortcut))) {
+                    if (sequence.overlaps(current.keys[0..current.len], other_shortcut.keys[0..other_shortcut.len])) {
                         return std.fmt.comptimePrint("Key collision between '{s}.{s}' shortcut '{s}' and '{s}.{s}' shortcut '{s}' on {s}", .{
                             @tagName(binding.context),
                             @tagName(binding.action),
@@ -125,10 +125,6 @@ fn parseShortcut(comptime expression: []const u8, comptime platform: Platform) P
     }
     if (result.len == 0) result.invalid_step = expression;
     return result;
-}
-
-fn asSequence(shortcut: anytype) sequence.Sequence {
-    return .{ .keys = shortcut.keys[0..shortcut.len] };
 }
 
 fn joinDiagnostics(diagnostics: anytype) []const u8 {

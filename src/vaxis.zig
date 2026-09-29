@@ -1,7 +1,7 @@
 const Keyboard = @import("key.zig").Keyboard;
 
 /// Matcher for one libvaxis key event.\
-/// Pass it to `Bindings.Resolver.feed`.\
+/// Pass it to `Bindings.Receiver.receive`.\
 /// Matching uses that event's rules.\
 /// It does not infer a physical key from `base_layout_codepoint`.
 pub fn vaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {

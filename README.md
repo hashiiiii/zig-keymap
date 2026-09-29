@@ -70,9 +70,9 @@ var bindings = switch (try Bindings.loadWithOptions(allocator, definition, keyma
 };
 defer bindings.deinit();
 
-var resolver = try bindings.resolver(allocator, .{});
-defer resolver.deinit();
-const action: ?Action = switch (resolver.feed(&.{ .global, .list }, keymap.vaxisMatcher(key), now_ms)) {
+var receiver = try bindings.receiver(allocator, .{});
+defer receiver.deinit();
+const action: ?Action = switch (receiver.receive(&.{ .global, .list }, keymap.vaxisMatcher(key), now_ms)) {
     .action => |value| value,
     .pending, .none => null,
 };
@@ -102,9 +102,9 @@ An empty array removes all keys for that action.
 An omitted action keeps its default keys.  
 
 `g g` means two key presses. `keys()` returns every binding for an action.
-Each result holds one or more key presses.
+Each result has one or more presses. `keys()[0][0]` is the first press.
 
-Keep one resolver across key events. Call `feed` for each event.
+Keep one receiver for each input stream, such as a window. Call `receive` for each key event.
 Call `advance` without a key event to check timeouts or context changes. `cancel` clears pending input.
 
 ## Development

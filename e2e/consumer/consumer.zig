@@ -21,7 +21,7 @@ test "consumer loads JSON without external dependencies" {
     try std.testing.expectEqual(keymap.Keyboard{
         .key = .{ .character = 'q' },
         .modifiers = .{ .ctrl = true },
-    }, bindings.keys(.global, .quit)[0].keys[0]);
+    }, bindings.keys(.global, .quit)[0][0]);
     try std.testing.expectEqualStrings("g g", bindings.hint(.global, .top));
-    try std.testing.expectEqual(@as(usize, 2), bindings.keys(.global, .top)[0].keys.len);
+    try std.testing.expectEqual(@as(usize, 2), bindings.keys(.global, .top)[0].len);
 }
