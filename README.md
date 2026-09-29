@@ -7,7 +7,7 @@
 
 zig-keymap maps keys to actions in Zig terminal applications.  
 Applications define defaults in Zig, and users can change them with JSON configuration.  
-Bindings support platform modifiers, shortcut labels, and sequences of key presses.
+Bindings support platform modifiers, shortcut labels, and successive key presses.
 
 ## Installation
 
@@ -60,7 +60,7 @@ defer allocator.free(keymap_json);
 
 var bindings = switch (try Bindings.loadWithOptions(allocator, definition, keymap_json, .{
     .platform = .macos,
-    .display_style = .macos,
+    .modifier_name = .macos,
 })) {
     .bindings => |value| value,
     .invalid => |diagnostic| {
@@ -70,9 +70,9 @@ var bindings = switch (try Bindings.loadWithOptions(allocator, definition, keyma
 };
 defer bindings.deinit();
 
-var resolver = try bindings.sequenceResolver(allocator, .{});
-defer resolver.deinit();
-const action: ?Action = switch (resolver.feed(&.{ .global, .list }, keymap.vaxisMatcher(key), now_ms)) {
+var receiver = try bindings.receiver(allocator, .{});
+defer receiver.deinit();
+const action: ?Action = switch (receiver.receive(&.{ .global, .list }, keymap.vaxisMatcher(key), now_ms)) {
     .action => |value| value,
     .pending, .none => null,
 };
@@ -85,6 +85,8 @@ const label = bindings.hint(.global, .quit);
 `loadWithOptions` expands `Mod` for the chosen `.platform`.  
 On macOS, `Mod+s` matches Super.  
 The OS or terminal may not send `Mod+s` to the app.
+
+`modifier_name` selects the modifier names in `hint` labels. It does not change matching.
 
 `hint` returns the first shortcut label.  
 
@@ -101,11 +103,11 @@ An action in the JSON replaces its default keys.
 An empty array removes all keys for that action.  
 An omitted action keeps its default keys.  
 
-`g g` means two key presses.
+`g g` means two key presses. `keys()` returns every binding for an action.
+Each result has one or more `KeyPress` values. `keys()[0][0]` is the first press.
 
-Keep one resolver across key events. `feed` handles single keys and sequences. Do not also call `resolve` for the same event.
+Keep one receiver for each input stream, such as a window. Call `receive` for each key event.
 Call `advance` without a key event to check timeouts or context changes. `cancel` clears pending input.
-With only single keys, `resolve` also works.
 
 ## Development
 

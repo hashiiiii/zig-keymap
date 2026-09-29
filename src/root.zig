@@ -21,7 +21,12 @@
 //! };
 //! defer bindings.deinit();
 //!
-//! const action = bindings.resolve(&.{.list}, keymap.vaxisMatcher(event));
+//! var receiver = try bindings.receiver(allocator, .{});
+//! defer receiver.deinit();
+//! const action: ?Action = switch (receiver.receive(&.{.list}, keymap.vaxisMatcher(event), now_ms)) {
+//!     .action => |value| value,
+//!     .pending, .none => null,
+//! };
 //! ```
 
 const key = @import("key.zig");
@@ -31,10 +36,9 @@ const vaxis = @import("vaxis.zig");
 pub const NamedKey = key.NamedKey;
 pub const Modifiers = key.Modifiers;
 pub const Key = key.Key;
-pub const Keyboard = key.Keyboard;
-pub const Sequence = @import("sequence.zig").Sequence;
+pub const KeyPress = key.KeyPress;
 pub const Platform = key.Platform;
-pub const DisplayStyle = key.DisplayStyle;
+pub const ModifierName = key.ModifierName;
 pub const Diagnostic = map.Diagnostic;
 pub const Bindings = map.Bindings;
 pub const vaxisMatcher = vaxis.vaxisMatcher;
