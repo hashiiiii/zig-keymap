@@ -37,8 +37,8 @@ Assume `allocator`, `io` (`std.Io`), `now_ms` (monotonic milliseconds), and a [l
 ```zig
 const std = @import("std");
 const keymap = @import("keymap");
-const Context = enum { global, list };
-const Action = enum { quit, save, move_down, top };
+const Context = enum { global, list, modal };
+const Action = enum { quit, save, move_down, top, cancel };
 const Bindings = keymap.Bindings(Context, Action);
 
 const definition: Bindings.Definition = .{
@@ -47,8 +47,12 @@ const definition: Bindings.Definition = .{
         .{ .context = .global, .action = .save, .keys = &.{"Mod+s"} },
         .{ .context = .list, .action = .move_down, .keys = &.{ "Down", "j" } },
         .{ .context = .list, .action = .top, .keys = &.{"g g"} },
+        .{ .context = .modal, .action = .cancel, .keys = &.{"Escape"} },
     },
-    .context_groups = &.{&.{ .global, .list }},
+    .context_groups = &.{
+        &.{ .global, .list },
+        &.{ .global, .modal },
+    },
 };
 
 comptime {
@@ -82,6 +86,11 @@ const label = bindings.hint(.global, .quit);
 `.invalid` returns a diagnostic.  
 `validateDefaults` checks those defaults for macOS, Windows, and Linux at compile time.  
 `context_groups` lists contexts that can be active together.  
+The example puts `global` with `list` in one group, and `global` with `modal` in another.  
+`global` belongs to both groups.  
+`load` and `validateDefaults` reject conflicting shortcuts inside one context and inside each group.  
+`list` and `modal` share no group, so they may use the same shortcut.  
+`receive` passes the active contexts. Here, those contexts are `global` and `list`.  
 `loadWithOptions` expands `Mod` for the chosen `.platform`.  
 On macOS, `Mod+s` matches Super.  
 The OS or terminal may not send `Mod+s` to the app.

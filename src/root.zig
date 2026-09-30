@@ -4,15 +4,20 @@
 //!
 //! ```zig
 //! const keymap = @import("keymap");
-//! const Context = enum { list };
-//! const Action = enum { move_down };
+//! const Context = enum { global, list, modal };
+//! const Action = enum { quit, move_down, cancel };
 //! const Bindings = keymap.Bindings(Context, Action);
 //!
 //! const definition: Bindings.Definition = .{
 //!     .defaults = &.{
+//!         .{ .context = .global, .action = .quit, .keys = &.{"q"} },
 //!         .{ .context = .list, .action = .move_down, .keys = &.{ "Down", "j" } },
+//!         .{ .context = .modal, .action = .cancel, .keys = &.{"Escape"} },
 //!     },
-//!     .context_groups = &.{},
+//!     .context_groups = &.{
+//!         &.{ .global, .list },
+//!         &.{ .global, .modal },
+//!     },
 //! };
 //!
 //! var bindings = switch (try Bindings.load(allocator, definition, null)) {
@@ -23,7 +28,7 @@
 //!
 //! var receiver = try bindings.receiver(allocator, .{});
 //! defer receiver.deinit();
-//! const action: ?Action = switch (receiver.receive(&.{.list}, keymap.vaxisMatcher(event), now_ms)) {
+//! const action: ?Action = switch (receiver.receive(&.{ .global, .list }, keymap.vaxisMatcher(event), now_ms)) {
 //!     .action => |value| value,
 //!     .pending, .none => null,
 //! };

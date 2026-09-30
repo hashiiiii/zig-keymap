@@ -84,7 +84,13 @@ pub fn Bindings(
             /// A key string may use `Mod` only when `loadWithOptions` sets `platform`.
             defaults: []const Default,
             /// Contexts that can be active together.\
-            /// `load` rejects conflicting shortcuts inside a context and inside each group.
+            /// An empty slice checks shortcut conflicts only within one context.\
+            /// Each group lists contexts that can be active at the same time.\
+            /// `load` rejects conflicting shortcuts inside a context and inside each group.\
+            /// Contexts that share no group are not compared.\
+            /// One context may belong to more than one group.\
+            /// A group of one context adds no comparison.\
+            /// `receive` selects active contexts from its argument.
             context_groups: []const []const Context,
         };
 
