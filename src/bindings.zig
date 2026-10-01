@@ -5,6 +5,7 @@ const KeyPress = key_module.KeyPress;
 const Platform = key_module.Platform;
 const ModifierName = key_module.ModifierName;
 const key_lists = @import("keys.zig");
+const receiver_module = @import("receiver.zig");
 const validation = @import("validation.zig");
 
 /// A problem found while loading bindings.\
@@ -23,7 +24,7 @@ pub const Diagnostic = struct {
         invalid_type,
         /// A default or configured key string is invalid.
         invalid_key,
-        /// Equivalent shortcuts belong to contexts that can be active together.
+        /// Equivalent key bindings belong to contexts that can be active together.
         collision,
         /// The defaults repeat a context and action pair.
         invalid_definition,
@@ -63,7 +64,7 @@ pub fn Bindings(
     return struct {
         const Self = @This();
         /// State for matching key presses in one input stream.
-        pub const Receiver = key_lists.Receiver(Context, Action);
+        pub const Receiver = receiver_module.Receiver(Context, Action);
         /// `Default` assigns default key strings to one context and action.
         pub const Default = struct {
             /// Context where this default applies.
@@ -72,7 +73,7 @@ pub fn Bindings(
             action: Action,
             /// Key strings for this action, such as `Down` or `Ctrl+b n`.\
             /// Separate successive presses with spaces.\
-            /// Use `Space` for a space inside a key_lists.\
+            /// Use `Space` to bind the space key.\
             /// An empty slice declares no default keys.
             keys: []const []const u8,
         };
@@ -84,12 +85,18 @@ pub fn Bindings(
             /// A key string may use `Mod` only when `loadWithOptions` sets `platform`.
             defaults: []const Default,
             /// Contexts that can be active together.\
-            /// `load` rejects conflicting shortcuts inside a context and inside each group.
+            /// An empty slice checks key binding conflicts only within one context.\
+            /// Each group lists contexts that can be active at the same time.\
+            /// `load` rejects conflicting key bindings inside a context and inside each group.\
+            /// Contexts that share no group are not compared.\
+            /// One context may belong to more than one group.\
+            /// A group of one context adds no comparison.\
+            /// `receive` selects active contexts from its argument.
             context_groups: []const []const Context,
         };
 
         /// Checks these defaults at compile time for macOS, Windows, and Linux.\
-        /// Invalid keys, duplicate pairs, and overlapping shortcuts fail compilation.
+        /// Invalid keys, duplicate pairs, and overlapping key bindings fail compilation.
         pub fn validateDefaults(comptime definition: Definition) void {
             validation.validateDefaults(Context, Action, definition);
         }
@@ -131,7 +138,7 @@ pub fn Bindings(
         /// `[]` removes every key for that action.\
         /// An omitted action keeps its default keys.\
         /// Key strings must use concrete modifiers. Use `loadWithOptions` for `Mod`.\
-        /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting shortcuts.\
+        /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting key bindings.\
         /// The bindings own their memory.\
         /// The caller may free `text` and the definition slices.
         pub fn load(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
@@ -143,7 +150,7 @@ pub fn Bindings(
         /// A `null` platform accepts only concrete modifiers.\
         /// `modifier_name` changes `hint` labels only.\
         /// JSON replacement rules match `load`.\
-        /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting shortcuts.\
+        /// Returns `.invalid` for invalid configuration, invalid defaults, or conflicting key bindings.\
         /// The bindings own their keys and labels until `deinit`.\
         /// The caller may free `text` and the definition slices.
         pub fn loadWithOptions(allocator: std.mem.Allocator, definition: Definition, text: ?[]const u8, options: LoadOptions) std.mem.Allocator.Error!LoadResult {
@@ -257,13 +264,14 @@ pub fn Bindings(
         }
 
         /// Creates independent input state over these bindings.\
+        /// `io` supplies the monotonic awake clock for pending input timeouts.\
         /// Use one receiver for each independent input stream.\
         /// Free the receiver before `deinit` on these bindings.
-        pub fn receiver(self: *const Self, allocator: std.mem.Allocator, options: Receiver.Options) std.mem.Allocator.Error!Receiver {
-            return Receiver.init(allocator, self.entries, options);
+        pub fn receiver(self: *const Self, allocator: std.mem.Allocator, io: std.Io, options: Receiver.Options) std.mem.Allocator.Error!Receiver {
+            return Receiver.init(allocator, io, self.entries, options);
         }
 
-        /// Returns the first shortcut as a label, or an empty string when the action has no keys.\
+        /// Returns the first key binding as a label, or an empty string when the action has no keys.\
         /// The bindings own the result until `deinit`.
         pub fn hint(self: *const Self, context: Context, action: Action) []const u8 {
             for (self.entries) |entry| {
@@ -407,7 +415,7 @@ test "load rejects collisions within a context" {
 }
 
 test "load rejects collisions across context groups" {
-    // Global shortcuts must not shadow navigation in a declared active group.
+    // Global key bindings must not shadow navigation in a declared active group.
     const Map = Bindings(enum { global, tree }, enum { quit, move_down });
     const collision = (try Map.load(testing.allocator, .{
         .defaults = &.{
