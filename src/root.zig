@@ -99,13 +99,11 @@
 //! ```json
 //! {
 //!   "global": { "quit": ["Ctrl+q"] },
-//!   "list": {
-//!     "move_down": ["Ctrl+n"]
-//!   }
+//!   "list": { "move_down": ["Ctrl+n"] }
 //! }
 //! ```
 //!
-//! An omitted action keeps its defaults, so `g g` remains available for `top`.
+//! Here, `top` is omitted from the JSON configuration, so its default binding `g g` remains available.
 
 const key = @import("key.zig");
 const bindings = @import("bindings.zig");

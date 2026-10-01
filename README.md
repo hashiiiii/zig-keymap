@@ -29,66 +29,9 @@ In `build.zig`, import the `keymap` module:
    app.root_module.addImport("keymap", keymap.module("keymap"));
    ```
 
-## Types
-
-`KeyPress` describes one key and its modifiers in a configured binding.
-The arrows below label return values, list elements, and fields.
-`Key` holds either a Unicode character or a `NamedKey`.
-
-```mermaid
-flowchart TD
-    Bindings["Bindings(Context, Action)"] -->|"keys(context, action) returns"| Alternatives["[]const []const KeyPress<br/>Alternative key bindings"]
-    Alternatives -->|"Each binding"| Presses["[]const KeyPress<br/>Key presses in order"]
-    Presses -->|"Each press"| KeyPress["KeyPress"]
-    KeyPress -->|"key"| Key["Key"]
-    KeyPress -->|"modifiers"| Modifiers["Modifiers<br/>Ctrl, Alt, Shift, Super, Meta, Hyper"]
-    Key -->|"character"| Character["u21<br/>Unicode character, such as j"]
-    Key -->|"named"| NamedKey["NamedKey<br/>Enter, Down, F1, ..."]
-```
-
-For `["Down", "j", "g g"]`, the outer list has three bindings; the last binding contains two `KeyPress` values.
-
-`Bindings(Context, Action)` creates a type using the application's two enums.
-Names such as `Bindings.Default` refer to types declared inside it:
-
-```text
-Bindings(Context, Action)
-├── Default        context, action, and default key strings
-├── Definition     defaults and context_groups
-├── LoadOptions    Platform for Mod; ModifierName for labels
-├── LoadResult     bindings or Diagnostic
-└── Receiver       matching state for one input stream
-    ├── Options    timeout settings
-    └── Result     none, pending, or action
-
-Diagnostic
-└── Kind           syntax, invalid_key, collision, ...
-```
-
-`Platform` resolves `Mod` to a concrete modifier.
-`ModifierName` selects modifier spelling in labels.
-
 ## Usage
 
-Each key binding assigns one or more `KeyPress` values to an action in a context.
-This example uses [libvaxis](https://github.com/rockorager/libvaxis) to read keyboard input and prints a row counter.
-When `Ctrl+n` is pressed while the `list` context is active:
-
-```mermaid
-flowchart LR
-    Input["loop.nextEvent()<br/>event.key_press: vaxis.Key"] --> Matcher["libvaxisMatcher(key)"]
-    Matcher --> Receiver["receiver.receive(active_contexts, matcher)"]
-    Receiver --> Result["Bindings.Receiver.Result<br/>none / pending / action"]
-    Result -->|"action: move_down"| Application["Application<br/>increments row"]
-```
-
-`vaxis.Key` is the received input; `keymap.KeyPress` describes the configured input to match.
-The matcher compares them using libvaxis's `Key.matches`.
-
-In the JSON below, `Ctrl+n` replaces the default `Down` and `j` bindings for `move_down`.
-The row movement code stays the same.
-Import both `keymap` and `vaxis` in the application.
-Save the JSON example below as `keymap.json` before running the application.
+This example uses [libvaxis](https://github.com/rockorager/libvaxis) to read keyboard input and prints a row counter.   
 
 ```zig
 const std = @import("std");
@@ -180,21 +123,18 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 ```
-
-Save this configuration as `keymap.json`:
+Save this configuration as `keymap.json`
 
 ```json
 {
   "global": { "quit": ["Ctrl+q"] },
-  "list": {
-    "move_down": ["Ctrl+n"]
-  }
+  "list": { "move_down": ["Ctrl+n"] }
 }
 ```
 
-An action in JSON replaces all its default key bindings.
-An empty array removes its bindings. An omitted action keeps its defaults.
-Here, `top` is omitted, so `g g` remains available.
+An action in JSON replaces all its default key bindings.  
+An empty array removes its bindings. An omitted action keeps its defaults.  
+Here, `top` is omitted from the JSON configuration, so its default binding `g g` remains available.
 
 ## Development
 
@@ -203,18 +143,6 @@ mise install
 zig fmt build.zig build.zig.zon src e2e
 zig build test -Doptimize=Debug
 zig build test -Doptimize=ReleaseSafe
-```
-
-```text
-src/
-├── root.zig         public API and usage example
-├── bindings.zig     configuration, action bindings, and labels
-├── key.zig          key types, parsing, formatting, and equivalence
-├── keys.zig         key string splitting and list overlap checks
-├── receiver.zig     input matching and pending state
-├── validation.zig   default validation and context overlap checks
-└── matcher/
-    └── libvaxis.zig  libvaxis key comparison
 ```
 
 ## API documentation
