@@ -132,14 +132,15 @@ test "three-step sequences restart timeouts and preserve literal space shortcuts
         .context_groups = &.{},
     }, null)).bindings;
     defer map.deinit();
-    var receiver = try map.receiver(testing.allocator, testing.io, .{ .timeout_ms = 200 });
+    // Each pause stays below the timeout; the wider margin tolerates CI scheduling delays.
+    var receiver = try map.receiver(testing.allocator, testing.io, .{ .timeout_ms = 2000 });
     defer receiver.deinit();
     try testing.expect(receiver.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'g' })) == .pending);
-    try std.Io.sleep(testing.io, .fromMilliseconds(120), .awake);
+    try std.Io.sleep(testing.io, .fromMilliseconds(1200), .awake);
     // Repeating a context must not consume one event as two sequence steps.
     try testing.expect(receiver.receive(&.{ .list, .list }, keymap.libvaxisMatcher(Key{ .codepoint = 'g' })) == .pending);
     // The second step must move the deadline past the first step's timeout.
-    try std.Io.sleep(testing.io, .fromMilliseconds(120), .awake);
+    try std.Io.sleep(testing.io, .fromMilliseconds(1200), .awake);
     try testing.expect(receiver.advance(&.{.list}) == .pending);
     try testing.expectEqual(Action.command, receiver.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'e' })).action);
     try testing.expectEqual(Action.space, receiver.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = ' ', .mods = .{ .ctrl = true } })).action);
