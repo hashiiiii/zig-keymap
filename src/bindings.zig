@@ -5,6 +5,7 @@ const KeyPress = key_module.KeyPress;
 const Platform = key_module.Platform;
 const ModifierName = key_module.ModifierName;
 const key_lists = @import("keys.zig");
+const receiver_module = @import("receiver.zig");
 const validation = @import("validation.zig");
 
 /// A problem found while loading bindings.\
@@ -63,7 +64,7 @@ pub fn Bindings(
     return struct {
         const Self = @This();
         /// State for matching key presses in one input stream.
-        pub const Receiver = key_lists.Receiver(Context, Action);
+        pub const Receiver = receiver_module.Receiver(Context, Action);
         /// `Default` assigns default key strings to one context and action.
         pub const Default = struct {
             /// Context where this default applies.

@@ -21,7 +21,8 @@
 //!         .{ .context = .list, .action = .move_down, .keys = &.{ "Down", "j" } },
 //!         .{ .context = .list, .action = .top, .keys = &.{"g g"} },
 //!     },
-//!     // Groups declare possible overlaps for conflict checks; receive selects the active contexts.
+//!     // Groups declare possible overlaps for conflict checks.
+//!     // Receive selects the active contexts.
 //!     // With these defaults, assigning q to list.move_down would collide with global.quit.
 //!     .context_groups = &.{
 //!         &.{ .global, .list },
@@ -107,7 +108,7 @@
 //! An omitted action keeps its defaults, so `g g` remains available for `top`.
 
 const key = @import("key.zig");
-const map = @import("map.zig");
+const bindings = @import("bindings.zig");
 const libvaxis = @import("matcher/libvaxis.zig");
 
 pub const NamedKey = key.NamedKey;
@@ -116,8 +117,8 @@ pub const Key = key.Key;
 pub const KeyPress = key.KeyPress;
 pub const Platform = key.Platform;
 pub const ModifierName = key.ModifierName;
-pub const Diagnostic = map.Diagnostic;
-pub const Bindings = map.Bindings;
+pub const Diagnostic = bindings.Diagnostic;
+pub const Bindings = bindings.Bindings;
 pub const libvaxisMatcher = libvaxis.libvaxisMatcher;
 
 test {
