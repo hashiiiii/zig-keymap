@@ -121,7 +121,7 @@ pub const Platform = enum {
     linux,
 };
 
-/// Selects modifier names for shortcut labels.\
+/// Selects modifier names for key binding labels.\
 /// Matching and collision checks stay the same.
 pub const ModifierName = enum {
     /// `Ctrl`, `Alt`, `Shift`, and `Super`.
@@ -249,7 +249,7 @@ pub const KeyPress = struct {
         return buffer[0..end];
     }
 
-    /// Reports whether two values collide as the same shortcut.\
+    /// Reports whether two values collide as the same key press.\
     /// ASCII uppercase equals the lowercase letter with `Shift`.\
     /// `J` equals `Shift+j`.\
     /// These named keys equal their character values:
@@ -374,7 +374,7 @@ test "format produces canonical hints for named and character keys" {
 }
 
 test "formatWithModifierName changes modifier names and keeps key spelling" {
-    // Shortcut hints must keep the bound character recognizable across naming conventions.
+    // Key labels must keep the bound character recognizable across naming conventions.
     const key_press = KeyPress{
         .key = .{ .character = 'K' },
         .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true },
@@ -391,7 +391,7 @@ test "formatWithModifierName changes modifier names and keeps key spelling" {
 }
 
 test "equivalent detects ASCII Shift aliases without merging other modifiers" {
-    // Equivalent spellings must collide, but distinct shortcuts must remain available.
+    // Equivalent spellings must collide, but distinct key presses must remain available.
     try testing.expect((try KeyPress.parse("J")).equivalent(try KeyPress.parse("Shift+j")));
     try testing.expect(!(try KeyPress.parse("J")).equivalent(try KeyPress.parse("j")));
     try testing.expect(!(try KeyPress.parse("Ctrl+j")).equivalent(try KeyPress.parse("j")));

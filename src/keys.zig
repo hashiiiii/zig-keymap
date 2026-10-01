@@ -9,10 +9,10 @@ pub fn overlaps(a: []const KeyPress, b: []const KeyPress) bool {
     return true;
 }
 
-/// Splits a shortcut into key expressions.\
+/// Splits a key binding into key expressions.\
 /// Use `Space` for a space inside a sequence.
 pub const Steps = struct {
-    /// Remaining words in the shortcut string.
+    /// Remaining words in the key binding string.
     tokens: std.mem.TokenIterator(u8, .scalar),
     /// Set when the whole expression is a space key.
     single: ?[]const u8,
@@ -37,7 +37,7 @@ pub const Steps = struct {
 };
 
 /// State for matching key events to actions.\
-/// `now_ms` is monotonic milliseconds supplied by the application.
+/// Pending input expires on the monotonic awake clock from `io`.
 pub fn Receiver(comptime Context: type, comptime Action: type) type {
     return struct {
         const Self = @This();
@@ -48,7 +48,7 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
             next_step: ?usize = null,
         };
 
-        /// Timeout for a partial shortcut.
+        /// Timeout between successive key presses.
         pub const Options = struct {
             /// Restarts after each matched step.\
             /// `null` disables expiration.
@@ -57,9 +57,9 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
 
         /// Outcome of `receive` or `advance`.
         pub const Result = union(enum) {
-            /// No shortcut matched.
+            /// No key binding matched.
             none,
-            /// A shortcut is incomplete.
+            /// More key presses are needed to match a binding.
             pending,
             /// The matched action.
             action: Action,
@@ -67,15 +67,17 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
 
         /// Owns `candidates`.
         allocator: std.mem.Allocator,
-        /// Shortcuts taken from the bindings.
+        /// Monotonic awake clock used for pending input timeouts.
+        io: std.Io,
+        /// Key bindings taken from the configuration.
         candidates: []Candidate,
         /// Timeout settings from `init`.
         options: Options,
         /// Deadline of the current timeout, when one is active.
-        deadline: ?u64 = null,
+        deadline: ?std.Io.Timestamp = null,
 
-        /// Creates input state over the bindings' shortcuts.
-        pub fn init(allocator: std.mem.Allocator, entries: anytype, options: Options) std.mem.Allocator.Error!Self {
+        /// Creates input state over the bindings' keys.
+        pub fn init(allocator: std.mem.Allocator, io: std.Io, entries: anytype, options: Options) std.mem.Allocator.Error!Self {
             var count: usize = 0;
             for (entries) |entry| count += entry.keys.len;
             const candidates = try allocator.alloc(Candidate, count);
@@ -86,7 +88,7 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
                     index += 1;
                 }
             }
-            return .{ .allocator = allocator, .candidates = candidates, .options = options };
+            return .{ .allocator = allocator, .io = io, .candidates = candidates, .options = options };
         }
 
         /// Clears a partial sequence without returning an action.
@@ -96,10 +98,11 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
         }
 
         /// Expires pending input, or drops input whose context is no longer active.\
-        /// Call it when time or the active contexts change and no key arrived.
-        pub fn advance(self: *Self, active_contexts: []const Context, now_ms: u64) Result {
+        /// Call it when the active contexts change and no key arrived.\
+        /// Pending input also expires here after `timeout_ms` on the awake clock.
+        pub fn advance(self: *Self, active_contexts: []const Context) Result {
             if (self.deadline) |deadline| {
-                if (now_ms >= deadline) {
+                if (std.Io.Clock.awake.now(self.io).nanoseconds >= deadline.nanoseconds) {
                     self.cancel();
                     return .none;
                 }
@@ -118,12 +121,12 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
         }
 
         /// Matches one event.\
-        /// A mismatch clears the prefix and tries that event as a new shortcut.\
-        /// When shortcuts overlap, earlier active contexts win, then earlier declarations.\
-        /// An earlier pending shortcut wins over a later completed one.\
+        /// A mismatch clears the prefix and tries that event as the start of a key binding.\
+        /// When key bindings overlap, earlier active contexts win, then earlier declarations.\
+        /// An earlier pending binding wins over a later completed one.\
         /// After `.pending`, the application decides whether to withhold that event from text input.
-        pub fn receive(self: *Self, active_contexts: []const Context, matcher: anytype, now_ms: u64) Result {
-            if (self.advance(active_contexts, now_ms) == .pending) {
+        pub fn receive(self: *Self, active_contexts: []const Context, matcher: anytype) Result {
+            if (self.advance(active_contexts) == .pending) {
                 var pending = false;
                 for (active_contexts, 0..) |context, context_index| {
                     if (std.mem.indexOfScalar(Context, active_contexts[0..context_index], context) != null) continue;
@@ -136,7 +139,7 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
                         }
                         if (next + 1 == candidate.keys.len) {
                             candidate.next_step = null;
-                            // A native overlap must not interrupt an earlier pending shortcut.
+                            // A native overlap must not interrupt earlier pending input.
                             if (pending) continue;
                             const action = candidate.action;
                             self.cancel();
@@ -147,7 +150,7 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
                     }
                 }
                 if (pending) {
-                    self.restartTimeout(now_ms);
+                    self.restartTimeout();
                     return .pending;
                 }
                 self.cancel();
@@ -168,12 +171,17 @@ pub fn Receiver(comptime Context: type, comptime Action: type) type {
                 }
             }
             if (!pending) return .none;
-            self.restartTimeout(now_ms);
+            self.restartTimeout();
             return .pending;
         }
 
-        fn restartTimeout(self: *Self, now_ms: u64) void {
-            self.deadline = if (self.options.timeout_ms) |timeout| now_ms +| timeout else null;
+        fn restartTimeout(self: *Self) void {
+            const timeout = self.options.timeout_ms orelse {
+                self.deadline = null;
+                return;
+            };
+            const now = std.Io.Clock.awake.now(self.io);
+            self.deadline = now.addDuration(.fromMilliseconds(@intCast(timeout)));
         }
 
         /// Frees this receiver. Call it before freeing the bindings.
