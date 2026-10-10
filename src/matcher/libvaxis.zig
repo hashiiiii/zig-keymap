@@ -1,20 +1,16 @@
 const KeyPress = @import("../key.zig").KeyPress;
 
-/// Wraps one libvaxis `Key` as a matcher for configured `KeyPress` values.\
-/// Pass the `key` payload from the `.key_press` branch of `loop.nextEvent()`.\
-/// Pass the returned matcher to `Bindings.Receiver.receive`.\
-/// Calls `Key.matches` to preserve libvaxis's text and Shift matching rules.\
-/// It does not infer a physical key from `base_layout_codepoint`.
+/// Adapts a libvaxis Key for Bindings.receive, preserving native text and Shift matching.
+/// Pass the key_press payload from loop.nextEvent().
+/// The adapter does not match physical keys through base_layout_codepoint.
 pub fn libvaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {
     return .{ .key = key };
 }
 
 fn Matcher(comptime NativeKey: type) type {
     return struct {
-        /// The libvaxis key event to match.
         key: NativeKey,
 
-        /// Returns `true` when `key` matches `spec` under libvaxis's comparison rules.
         pub fn matches(self: @This(), spec: KeyPress) bool {
             const codepoint = switch (spec.key) {
                 .character => |cp| cp,

@@ -1,27 +1,29 @@
 const std = @import("std");
 const keymap = @import("keymap");
 
-test "consumer loads JSON without external dependencies" {
-    // Applications using other adapters should not need to download test dependencies.
-    const Map = keymap.Bindings(enum { global }, enum { quit, top });
-    const definition: Map.Definition = .{
-        .defaults = &.{
-            .{ .context = .global, .action = .quit, .keys = &.{"Mod+q"} },
-            .{ .context = .global, .action = .top, .keys = &.{"g g"} },
-        },
-        .context_groups = &.{},
-    };
-    comptime Map.validateDefaults(definition);
-    var bindings = (try Map.loadWithOptions(std.testing.allocator, definition,
+test "consumer loads JSON and receives typed input without dependencies" {
+    // Other input backends must work without downloading terminal packages.
+    const Action = enum { quit, top };
+    const Map = keymap.Bindings(enum { global }, Action);
+    var bindings = try Map.load(std.testing.allocator, &.{
+        .{ .context = .global, .action = .quit, .keys = &.{"Cmd+q"} },
+        .{ .context = .global, .action = .top, .keys = &.{"g g"} },
+    },
         \\{"global": {"quit": ["Ctrl+q"]}}
-    , .{ .platform = .macos, .modifier_name = .macos })).bindings;
+    );
     defer bindings.deinit();
-    try std.testing.expectEqualStrings("Ctrl+q", bindings.hint(.global, .quit));
-    // Applications inspecting bindings need a public key type without terminal dependencies.
-    try std.testing.expectEqual(keymap.KeyPress{
+
+    const q: keymap.KeyPress = .{
         .key = .{ .character = 'q' },
         .modifiers = .{ .ctrl = true },
-    }, bindings.keys(.global, .quit)[0][0]);
-    try std.testing.expectEqualStrings("g g", bindings.hint(.global, .top));
-    try std.testing.expectEqual(@as(usize, 2), bindings.keys(.global, .top)[0].len);
+    };
+    const g: keymap.KeyPress = .{ .key = .{ .character = 'g' } };
+    const result: Map.Result = bindings.receive(&.{.global}, q);
+    try std.testing.expectEqual(Action.quit, result.action);
+    try std.testing.expect(bindings.receive(&.{.global}, g) == .pending);
+    try std.testing.expectEqual(Action.top, bindings.receive(&.{.global}, g).action);
+    try std.testing.expect(bindings.receive(&.{.global}, keymap.KeyPress{
+        .key = .{ .character = 'q' },
+        .modifiers = .{ .super = true },
+    }) == .none);
 }

@@ -4,7 +4,7 @@ const KeyPress = @import("key.zig").KeyPress;
 /// True when the key lists are equal or one is a prefix of the other.
 pub fn overlaps(a: []const KeyPress, b: []const KeyPress) bool {
     for (a[0..@min(a.len, b.len)], b[0..@min(a.len, b.len)]) |ak, bk| {
-        if (!ak.equivalent(bk)) return false;
+        if (!ak.matches(bk)) return false;
     }
     return true;
 }
