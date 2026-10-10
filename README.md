@@ -11,10 +11,9 @@ Define typed contexts and actions, then receive single keys or sequences such as
 ## Installation
 
 Requires Zig `0.16.0`. The library has no external dependencies.
-The examples below use the API on `main`; `v0.3.0` has the previous interface.
 
 ```sh
-zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#main"
+zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#v0.3.0"
 ```
 
 Import `keymap` in `build.zig`:
