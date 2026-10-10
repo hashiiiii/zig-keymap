@@ -46,14 +46,13 @@ test "input streams keep pending keys separate" {
     try testing.expectEqual(Action.top, second.receive(&.{.list}, g).action);
 }
 
-test "bindings receive single keys and sequences" {
-    // One input method must handle both binding lengths.
-    const Action = enum { top, end, quit };
+test "shared sequence prefixes select the matching action" {
+    // The next key must select the right action for a shared prefix.
+    const Action = enum { top, end };
     const Map = keymap.Bindings(enum { list }, Action);
     var bindings = try Map.load(testing.allocator, &.{
         .{ .context = .list, .action = .top, .keys = &.{"g g"} },
         .{ .context = .list, .action = .end, .keys = &.{"g e"} },
-        .{ .context = .list, .action = .quit, .keys = &.{"q"} },
     }, null);
     defer bindings.deinit();
 
@@ -61,7 +60,6 @@ test "bindings receive single keys and sequences" {
     try testing.expectEqual(Action.end, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'e' })).action);
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'g' })) == .pending);
     try testing.expectEqual(Action.top, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'g' })).action);
-    try testing.expectEqual(Action.quit, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'q' })).action);
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'x' })) == .none);
 }
 
@@ -92,18 +90,49 @@ test "cancellation inactive contexts and mismatches clear pending keys" {
 
 test "three-step sequences consume each event once" {
     // Repeating a context must not consume one event as multiple sequence steps.
-    const Action = enum { command, space };
+    const Action = enum { command };
     const Map = keymap.Bindings(enum { list }, Action);
     var bindings = try Map.load(testing.allocator, &.{
         .{ .context = .list, .action = .command, .keys = &.{"g g e"} },
-        .{ .context = .list, .action = .space, .keys = &.{"Ctrl+ "} },
     }, null);
     defer bindings.deinit();
 
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'g' })) == .pending);
     try testing.expect(bindings.receive(&.{ .list, .list }, keymap.libvaxisMatcher(Key{ .codepoint = 'g' })) == .pending);
     try testing.expectEqual(Action.command, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'e' })).action);
-    try testing.expectEqual(Action.space, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = ' ', .mods = .{ .ctrl = true } })).action);
+}
+
+test "Space works as a key and within a sequence" {
+    // Space separates sequence steps, so the named key must remain usable with modifiers.
+    const Action = enum { select, next };
+    const Map = keymap.Bindings(enum { list }, Action);
+    var bindings = try Map.load(testing.allocator, &.{
+        .{ .context = .list, .action = .select, .keys = &.{"Space"} },
+        .{ .context = .list, .action = .next, .keys = &.{"Ctrl+Space n"} },
+    }, null);
+    defer bindings.deinit();
+
+    try testing.expectEqual(Action.select, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = ' ' })).action);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = ' ', .mods = .{ .ctrl = true } })) == .pending);
+    try testing.expectEqual(Action.next, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'n' })).action);
+}
+
+test "native single keys yield to higher-priority sequences" {
+    // A shared input must start the earlier sequence instead of running a lower-priority action.
+    const Action = enum { long, short };
+    const Map = keymap.Bindings(enum { global, list }, Action);
+    var bindings = try Map.load(testing.allocator, &.{
+        .{ .context = .list, .action = .short, .keys = &.{":"} },
+        .{ .context = .global, .action = .long, .keys = &.{"Shift+; x"} },
+    }, null);
+    defer bindings.deinit();
+    const colon = keymap.libvaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } });
+    const x = keymap.libvaxisMatcher(Key{ .codepoint = 'x' });
+
+    try testing.expect(bindings.receive(&.{ .global, .list }, colon) == .pending);
+    try testing.expectEqual(Action.long, bindings.receive(&.{ .global, .list }, x).action);
+    try testing.expectEqual(Action.short, bindings.receive(&.{ .list, .global }, colon).action);
+    try testing.expect(bindings.receive(&.{ .global, .list }, x) == .none);
 }
 
 test "native sequence overlaps follow context priority" {
@@ -120,8 +149,9 @@ test "native sequence overlaps follow context priority" {
     try testing.expect(bindings.receive(&.{ .global, .list }, colon) == .pending);
     try testing.expect(bindings.receive(&.{ .global, .list }, keymap.libvaxisMatcher(Key{ .codepoint = 'x' })) == .pending);
     try testing.expectEqual(Action.long, bindings.receive(&.{ .global, .list }, keymap.libvaxisMatcher(Key{ .codepoint = 'y' })).action);
-    try testing.expect(bindings.receive(&.{ .list, .global }, colon) == .pending);
+    try testing.expect(bindings.receive(&.{ .global, .list }, colon) == .pending);
     try testing.expectEqual(Action.short, bindings.receive(&.{ .list, .global }, keymap.libvaxisMatcher(Key{ .codepoint = 'x' })).action);
+    try testing.expect(bindings.receive(&.{ .global, .list }, keymap.libvaxisMatcher(Key{ .codepoint = 'x' })) == .none);
 }
 
 test "native sequence overlaps follow declaration priority" {
@@ -169,7 +199,7 @@ test "JSON sequences accept modifier aliases and Unicode" {
 }
 
 test "shared keys follow active context order" {
-    // Context priority replaces a separate declaration of which screens can overlap.
+    // Shared keys must follow the application's active context order.
     const Action = enum { quit, cancel };
     const Map = keymap.Bindings(enum { global, dialog }, Action);
     var bindings = try Map.load(testing.allocator, &.{

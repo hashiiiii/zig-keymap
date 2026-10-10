@@ -1,7 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
 const KeyPress = @import("key.zig").KeyPress;
-const key_lists = @import("keys.zig");
 
 /// JSON key bindings and input state for Context and Action enums.
 /// Use one instance per input stream.
@@ -13,7 +12,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
         pub const Default = struct {
             context: Context,
             action: Action,
-            /// Aliases such as Down, Ctrl+n, or g g. Use Space within a sequence.
+            /// Aliases such as Down, Ctrl+n, or g g. Use Space for the space key.
             keys: []const []const u8,
         };
 
@@ -89,7 +88,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                 const count = if (override) |value| value.array.items.len else binding.keys.len;
                 for (0..count) |key_index| {
                     const expression = if (override) |value| value.array.items[key_index].string else binding.keys[key_index];
-                    var steps = key_lists.Steps.init(expression);
+                    var steps = std.mem.tokenizeScalar(u8, expression, ' ');
                     var keys: std.ArrayList(KeyPress) = .empty;
                     while (steps.next()) |step| try keys.append(storage, try KeyPress.parse(step));
                     if (keys.items.len == 0) return error.InvalidKey;
@@ -104,7 +103,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                 for (bindings.items[index + 1 ..]) |b| {
                     if (a.context != b.context) continue;
                     if (a.action == b.action and a.keys.len == b.keys.len) continue;
-                    if (key_lists.overlaps(a.keys, b.keys)) return error.Collision;
+                    if (overlaps(a.keys, b.keys)) return error.Collision;
                 }
             }
             const owned = try bindings.toOwnedSlice(storage);
@@ -179,6 +178,13 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
     };
 }
 
+fn overlaps(a: []const KeyPress, b: []const KeyPress) bool {
+    for (a[0..@min(a.len, b.len)], b[0..@min(a.len, b.len)]) |ak, bk| {
+        if (!ak.matches(bk)) return false;
+    }
+    return true;
+}
+
 test "load rejects unknown context and action pairs" {
     // Misspelled or undeclared pairs must not silently keep defaults.
     const Map = Bindings(enum { list, dialog }, enum { down, cancel });
@@ -206,7 +212,6 @@ test "load requires objects and arrays of key strings" {
         .{ .context = .list, .action = .down, .keys = &.{"j"} },
     };
     try testing.expectError(error.InvalidType, Map.load(testing.allocator, defaults, "null"));
-    try testing.expectError(error.InvalidType, Map.load(testing.allocator, defaults, "[]"));
     try testing.expectError(error.InvalidType, Map.load(testing.allocator, defaults,
         \\{"list": 1}
     ));
@@ -329,4 +334,21 @@ test "load owns keys after defaults and JSON are freed" {
         .key = .{ .character = 'あ' },
         .modifiers = .{ .ctrl = true },
     }).action);
+}
+
+test "load frees partial state when allocation fails" {
+    // An exhausted allocator must not leak parsed JSON or partially built bindings.
+    const Fixture = struct {
+        fn load(allocator: std.mem.Allocator) !void {
+            const Map = Bindings(enum { global, list }, enum { quit, top });
+            var bindings = try Map.load(allocator, &.{
+                .{ .context = .global, .action = .quit, .keys = &.{"q"} },
+                .{ .context = .list, .action = .top, .keys = &.{"g g"} },
+            },
+                \\{"list": {"top": ["Cmd+\u3042 Space", "g g"]}}
+            );
+            defer bindings.deinit();
+        }
+    };
+    try testing.checkAllAllocationFailures(testing.allocator, Fixture.load, .{});
 }

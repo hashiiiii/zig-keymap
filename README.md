@@ -110,7 +110,7 @@ Sequences have no timeout; call `cancel()` when focus changes without input.
 ## Keys
 
 Characters keep their case. Named keys and modifier names ignore case.
-Use `Ctrl++` for plus, `Space` within a sequence, and spaces between successive presses.
+Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive presses.
 
 | Modifier | Accepted names |
 | --- | --- |
@@ -123,18 +123,6 @@ Use `Ctrl++` for plus, `Space` within a sequence, and spaces between successive 
 
 These names work on every target. The input backend must report the configured key and modifiers.
 `KeyPress.parse` converts a string to typed input; `KeyPress.matches` compares key presses.
-
-## Migration from v0.3.0
-
-Pass `[]const Bindings.Default` directly to `load` and handle failures with `try` or `catch`.
-Call `receive` and `cancel` on `Bindings`. Use `KeyPress.matches` in place of `equivalent`.
-
-`Definition`, `Receiver`, `LoadResult`, `Diagnostic`, `loadWithOptions`, and `context_groups` were removed.
-Cross-context overlaps now follow the order passed to `receive`.
-Clock arguments, timeouts, `advance`, and `validateDefaults` were removed; loading validates the configuration.
-
-`Platform`, `ModifierName`, key accessors, and label formatting were removed.
-Use concrete modifiers such as `Cmd` or `Ctrl` in place of `Mod`.
 
 ## Development
 
@@ -149,7 +137,6 @@ zig build test -Doptimize=ReleaseSafe
 
 Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).
 Run `zig build docs` to generate `zig-out/docs`.
-The Docs workflow publishes it when `main` changes.
 
 ## License
 
