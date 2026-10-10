@@ -140,6 +140,8 @@ Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive 
 | Keypad operations | `KeypadDecimal`, `KeypadDivide`, `KeypadMultiply`, `KeypadSubtract`, `KeypadAdd`, `KeypadEnter`, `KeypadEqual`, `KeypadSeparator` |
 | Keypad navigation | `KeypadLeft`, `KeypadRight`, `KeypadUp`, `KeypadDown`, `KeypadPageUp`, `KeypadPageDown`, `KeypadHome`, `KeypadEnd`, `KeypadInsert`, `KeypadDelete`, `KeypadBegin` |
 
+Keypad names remain distinct from main-keyboard bindings when the backend reports dedicated keypad codepoints.
+
 | Modifier | Accepted names |
 | --- | --- |
 | Ctrl | `Ctrl`, `Control` |

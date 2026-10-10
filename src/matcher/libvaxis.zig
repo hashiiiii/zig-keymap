@@ -19,14 +19,27 @@ fn Matcher(comptime NativeKey: type) type {
                     inline else => |tag| @field(NativeKey, @tagName(tag)),
                 },
             };
-            return self.key.matches(codepoint, .{
+            // Keypad text must not hide its dedicated identity from earlier main-key bindings.
+            if (self.key.codepoint >= NativeKey.kp_0 and self.key.codepoint <= NativeKey.kp_begin and self.key.codepoint != codepoint)
+                return false;
+            var modifiers: @TypeOf(self.key.mods) = .{
                 .shift = spec.modifiers.shift,
                 .ctrl = spec.modifiers.ctrl,
                 .alt = spec.modifiers.alt,
                 .super = spec.modifiers.super,
                 .meta = spec.modifiers.meta,
                 .hyper = spec.modifiers.hyper,
-            }) or spec.matches(.{
+            };
+            if (self.key.matches(codepoint, modifiers)) return true;
+            if (spec.key == .character and spec.modifiers.shift and
+                ((codepoint >= 'a' and codepoint <= 'z') or (codepoint >= 'A' and codepoint <= 'Z')))
+            {
+                // Shifted-codepoint matching consumes Shift, so test the uppercase spelling too.
+                modifiers.shift = false;
+                const uppercase = if (codepoint >= 'a' and codepoint <= 'z') codepoint - ('a' - 'A') else codepoint;
+                if (self.key.matches(uppercase, modifiers)) return true;
+            }
+            return spec.matches(.{
                 .key = .{ .character = self.key.codepoint },
                 .modifiers = .{
                     .shift = self.key.mods.shift,
@@ -76,4 +89,12 @@ test "libvaxisMatcher matches ASCII Shift aliases without text" {
     try testing.expect(libvaxisMatcher(Key{ .codepoint = 'J', .mods = .{ .ctrl = true } }).matches(try KeyPress.parse("Ctrl+Shift+j")));
     try testing.expect(!libvaxisMatcher(Key{ .codepoint = 'j', .mods = .{ .ctrl = true } }).matches(try KeyPress.parse("Ctrl+J")));
     try testing.expect(!libvaxisMatcher(Key{ .codepoint = 'j', .mods = .{ .shift = true } }).matches(try KeyPress.parse("Ctrl+J")));
+
+    // Alternate layouts may produce an ASCII uppercase letter from a non-ASCII base key.
+    const shifted = libvaxisMatcher(Key{ .codepoint = 'ı', .shifted_codepoint = 'I', .mods = .{ .ctrl = true, .shift = true } });
+    try testing.expect(shifted.matches(try KeyPress.parse("Ctrl+I")));
+    try testing.expect(shifted.matches(try KeyPress.parse("Ctrl+Shift+i")));
+    try testing.expect(shifted.matches(try KeyPress.parse("Ctrl+Shift+I")));
+    try testing.expect(!shifted.matches(try KeyPress.parse("Ctrl+i")));
+    try testing.expect(!shifted.matches(try KeyPress.parse("Shift+i")));
 }

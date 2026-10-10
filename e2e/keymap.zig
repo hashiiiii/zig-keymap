@@ -46,16 +46,18 @@ test "extended named keys select actions and distinguish keypad input" {
     // Dedicated keypad keys must remain distinct from main-keyboard characters and Enter.
     const Action = enum { function, capture, keypad, main };
     const Map = keymap.Bindings(enum { global }, Action);
-    var bindings = (try Map.load(testing.allocator, &.{},
-        \\{"global": {"function": ["F13", "F35"], "capture": ["PrintScreen"], "keypad": ["Keypad1", "KeypadEnter"], "main": ["1", "Enter"]}}
+    var bindings = (try Map.load(testing.allocator, &.{
+        .{ .context = .global, .action = .main, .keys = &.{ "1", "Enter" } },
+    },
+        \\{"global": {"function": ["F13", "F35"], "capture": ["PrintScreen"], "keypad": ["Keypad1", "KeypadEnter"]}}
     )).bindings;
     defer bindings.deinit();
 
     try testing.expectEqual(Action.function, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = Key.f13 })).action);
     try testing.expectEqual(Action.function, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = Key.f35 })).action);
     try testing.expectEqual(Action.capture, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = Key.print_screen })).action);
-    try testing.expectEqual(Action.keypad, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = Key.kp_1 })).action);
-    try testing.expectEqual(Action.keypad, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = Key.kp_enter })).action);
+    try testing.expectEqual(Action.keypad, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = Key.kp_1, .text = "1", .mods = .{ .num_lock = true } })).action);
+    try testing.expectEqual(Action.keypad, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = Key.kp_enter, .text = "\r", .mods = .{ .num_lock = true } })).action);
     try testing.expectEqual(Action.main, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = '1' })).action);
     try testing.expectEqual(Action.main, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{ .codepoint = Key.enter })).action);
 }
