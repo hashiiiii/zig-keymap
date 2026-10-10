@@ -18,6 +18,12 @@ pub const NamedKey = enum {
     page_down,
     insert,
     space,
+    caps_lock,
+    scroll_lock,
+    num_lock,
+    print_screen,
+    pause,
+    menu,
     f1,
     f2,
     f3,
@@ -30,37 +36,73 @@ pub const NamedKey = enum {
     f10,
     f11,
     f12,
+    f13,
+    f14,
+    f15,
+    f16,
+    f17,
+    f18,
+    f19,
+    f20,
+    f21,
+    f22,
+    f23,
+    f24,
+    f25,
+    f26,
+    f27,
+    f28,
+    f29,
+    f30,
+    f31,
+    f32,
+    f33,
+    f34,
+    f35,
+    kp_0,
+    kp_1,
+    kp_2,
+    kp_3,
+    kp_4,
+    kp_5,
+    kp_6,
+    kp_7,
+    kp_8,
+    kp_9,
+    kp_decimal,
+    kp_divide,
+    kp_multiply,
+    kp_subtract,
+    kp_add,
+    kp_enter,
+    kp_equal,
+    kp_separator,
+    kp_left,
+    kp_right,
+    kp_up,
+    kp_down,
+    kp_page_up,
+    kp_page_down,
+    kp_home,
+    kp_end,
+    kp_insert,
+    kp_delete,
+    kp_begin,
 
-    fn label(self: NamedKey) []const u8 {
-        return switch (self) {
-            .up => "Up",
-            .down => "Down",
-            .left => "Left",
-            .right => "Right",
-            .enter => "Enter",
-            .escape => "Escape",
-            .tab => "Tab",
-            .backspace => "Backspace",
-            .delete => "Delete",
-            .home => "Home",
-            .end => "End",
-            .page_up => "PageUp",
-            .page_down => "PageDown",
-            .insert => "Insert",
-            .space => "Space",
-            .f1 => "F1",
-            .f2 => "F2",
-            .f3 => "F3",
-            .f4 => "F4",
-            .f5 => "F5",
-            .f6 => "F6",
-            .f7 => "F7",
-            .f8 => "F8",
-            .f9 => "F9",
-            .f10 => "F10",
-            .f11 => "F11",
-            .f12 => "F12",
+    fn label(comptime self: NamedKey) []const u8 {
+        const text = comptime blk: {
+            const tag = @tagName(self);
+            const name = if (std.mem.startsWith(u8, tag, "kp_")) "Keypad" ++ tag[3..] else tag;
+            var buffer: [name.len - std.mem.count(u8, name, "_")]u8 = undefined;
+            var index = 0;
+            for (name) |character| {
+                if (character == '_') continue;
+                buffer[index] = character;
+                index += 1;
+            }
+            break :blk buffer;
         };
+        return &text;
     }
 };
 
@@ -119,7 +161,7 @@ pub const KeyPress = struct {
             if (!found) return error.InvalidKey;
             remaining = remaining[separator + 1 ..];
         }
-        inline for (std.meta.tags(NamedKey)) |named| {
+        inline for (comptime std.meta.tags(NamedKey)) |named| {
             if (std.ascii.eqlIgnoreCase(remaining, named.label())) return .{ .key = .{ .named = named }, .modifiers = modifiers };
         }
         const view = std.unicode.Utf8View.init(remaining) catch return error.InvalidKey;
@@ -178,6 +220,19 @@ test "parse accepts modifier aliases without OS selection" {
     try testing.expectEqual(super, try KeyPress.parse("wIn+k"));
     try testing.expectEqual(super, try KeyPress.parse("WiNdOwS+k"));
     try testing.expectEqual(ctrl, try KeyPress.parse("cOnTrOl+k"));
+}
+
+test "parse accepts extended function system and keypad names" {
+    // Extended keys must be configurable, including names with multiple words.
+    try testing.expectEqualStrings("f13", @tagName((try KeyPress.parse("F13")).key.named));
+    try testing.expectEqualStrings("f35", @tagName((try KeyPress.parse("f35")).key.named));
+    try testing.expectEqualStrings("print_screen", @tagName((try KeyPress.parse("PrintScreen")).key.named));
+    try testing.expectEqualStrings("caps_lock", @tagName((try KeyPress.parse("CapsLock")).key.named));
+    try testing.expectEqualStrings("kp_0", @tagName((try KeyPress.parse("Keypad0")).key.named));
+    try testing.expectEqualStrings("kp_9", @tagName((try KeyPress.parse("Keypad9")).key.named));
+    try testing.expectEqualStrings("kp_page_down", @tagName((try KeyPress.parse("kEyPaDpAgEdOwN")).key.named));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("F36"));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("Keypad10"));
 }
 
 test "parse rejects repeated modifiers written as platform aliases" {

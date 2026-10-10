@@ -5,12 +5,11 @@ test "consumer loads JSON and receives typed input without dependencies" {
     // Other input backends must work without downloading terminal packages.
     const Action = enum { quit, top };
     const Map = keymap.Bindings(enum { global }, Action);
-    var bindings = try Map.load(std.testing.allocator, &.{
+    var bindings = (try Map.load(std.testing.allocator, &.{
         .{ .context = .global, .action = .quit, .keys = &.{"Cmd+q"} },
-        .{ .context = .global, .action = .top, .keys = &.{"g g"} },
     },
-        \\{"global": {"quit": ["Ctrl+q"]}}
-    );
+        \\{"global": {"quit": ["Ctrl+q"], "top": ["g g"]}}
+    )).bindings;
     defer bindings.deinit();
 
     const q: keymap.KeyPress = .{
