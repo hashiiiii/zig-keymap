@@ -13,7 +13,7 @@ Define typed contexts and actions, then receive single keys or sequences such as
 Requires Zig `0.16.0`. The library has no external dependencies.
 
 ```sh
-zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#v0.3.0"
+zig fetch --save=zig_keymap "git+https://github.com/hashiiiii/zig-keymap#v0.4.0"
 ```
 
 Import `keymap` in `build.zig`:
