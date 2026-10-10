@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/hashiiiii/zig-keymap)](https://github.com/hashiiiii/zig-keymap/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/hashiiiii/zig-keymap/ci.yml?branch=main&label=CI)](https://github.com/hashiiiii/zig-keymap/actions/workflows/ci.yml)
 
-JSON key bindings for Zig applications.
+JSON key bindings for Zig applications.  
 Define typed contexts and actions, then receive single keys or sequences such as `g g`.
 
 ## Installation
@@ -88,7 +88,7 @@ Save `keymap.json`:
 }
 ```
 
-Arrays replace an action's default keys. `[]` disables it. Omitted actions keep their defaults, including `top` above.
+Arrays replace an action's default keys. `[]` disables it. Omitted actions keep their defaults, including `top` above.  
 Only pairs listed in `defaults` can be configured. Use `.keys = &.{}` to declare an action without default keys.
 
 | Method | Purpose |
@@ -98,19 +98,19 @@ Only pairs listed in `defaults` can be configured. Use `.keys = &.{}` to declare
 | `cancel()` | Clear pending keys when focus changes without input. |
 | `deinit()` | Free the configuration and input state. |
 
-Pass a `KeyPress` directly, or use `libvaxisMatcher` for native text and Shift matching.
-Other backends can pass a type with `matches(KeyPress) bool`.
+Pass a `KeyPress` directly, or use `libvaxisMatcher` for native text and Shift matching.  
+Other backends can pass a type with `matches(KeyPress) bool`.  
 Create one `Bindings` instance per input stream.
 
-Active-context order sets priority, followed by default declaration order.
-Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.
-A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.
+Active-context order sets priority, followed by default declaration order.  
+Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.  
+A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.  
 Sequences have no timeout; call `cancel()` when focus changes without input.
 
 ## Keys
 
-Characters keep their case. Named keys and modifier names ignore case.
-Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive presses.
+Characters keep their case. Named keys and modifier names ignore case.  
+Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive presses.  
 
 | Modifier | Accepted names |
 | --- | --- |
@@ -121,7 +121,7 @@ Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive 
 | Meta | `Meta` |
 | Hyper | `Hyper` |
 
-These names work on every target. The input backend must report the configured key and modifiers.
+These names work on every target. The input backend must report the configured key and modifiers.  
 `KeyPress.parse` converts a string to typed input; `KeyPress.matches` compares key presses.
 
 ## Development
@@ -135,7 +135,7 @@ zig build test -Doptimize=ReleaseSafe
 
 ## API documentation
 
-Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).
+Read the [API documentation](https://zig-keymap.hashiiiii.workers.dev).  
 Run `zig build docs` to generate `zig-out/docs`.
 
 ## License
