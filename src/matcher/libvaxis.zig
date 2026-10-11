@@ -15,7 +15,7 @@ fn Matcher(comptime NativeKey: type) type {
         key: NativeKey,
 
         pub fn isIgnored(self: @This()) bool {
-            // libvaxis omits ISO level Shift keys from isModifier().
+            // NOTE: libvaxis omits ISO level Shift keys from isModifier().
             // Remove the extra checks once the pinned libvaxis version includes both in isModifier().
             return self.key.isModifier() or
                 self.key.codepoint == NativeKey.iso_level_3_shift or
