@@ -1,6 +1,9 @@
 const std = @import("std");
 const testing = std.testing;
-const KeyPress = @import("key.zig").KeyPress;
+const key = @import("key.zig");
+const KeyPress = key.KeyPress;
+const KeyEvent = key.KeyEvent;
+const Modifiers = key.Modifiers;
 
 /// An owned description of invalid configuration. Call deinit after reading it.
 pub const Diagnostic = struct {
@@ -57,6 +60,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
 
         arena: std.heap.ArenaAllocator,
         bindings: []Binding,
+        held_modifiers: Modifiers = .{},
 
         /// Loaded bindings or an owned configuration diagnostic.
         /// Call deinit on the selected payload.
@@ -74,6 +78,8 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
         /// Empty arrays and omitted actions leave keys unbound.
         /// Invalid configuration returns .invalid; allocation failures return error.OutOfMemory.
         /// Both payloads own their data; callers may free text after loading.
+        /// Rejects overlapping normalized keys and sequence prefixes within a context.
+        /// Backend-specific text or layout overlaps follow JSON declaration order at input time.
         pub fn load(allocator: std.mem.Allocator, text: []const u8) std.mem.Allocator.Error!LoadResult {
             var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
@@ -109,8 +115,19 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                     for (value.array.items, 0..) |item, index| {
                         if (item != .string)
                             return invalid(allocator, .invalid_type, "'{s}.{s}[{d}]' must be a key string", .{ context_name, action_name, index });
-                        if (try appendBinding(allocator, storage, temporary, &parsed, context, action, item.string)) |diagnostic|
-                            return .{ .invalid = diagnostic };
+                        var steps = std.mem.tokenizeScalar(u8, item.string, ' ');
+                        var keys: std.ArrayList(KeyPress) = .empty;
+                        while (steps.next()) |step| {
+                            const press = KeyPress.parse(step) catch
+                                return invalid(allocator, .invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ item.string, context_name, action_name });
+                            try keys.append(storage, press);
+                        }
+                        if (keys.items.len == 0)
+                            return invalid(allocator, .invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ item.string, context_name, action_name });
+                        try parsed.append(temporary, .{
+                            .binding = .{ .context = context, .action = action, .keys = try keys.toOwnedSlice(storage) },
+                            .expression = item.string,
+                        });
                     }
                 }
             }
@@ -135,36 +152,100 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
             return .{ .invalid = try Diagnostic.init(allocator, kind, format, args) };
         }
 
-        fn appendBinding(allocator: std.mem.Allocator, storage: std.mem.Allocator, temporary: std.mem.Allocator, parsed: *std.ArrayList(ParsedBinding), context: Context, action: Action, expression: []const u8) std.mem.Allocator.Error!?Diagnostic {
-            var steps = std.mem.tokenizeScalar(u8, expression, ' ');
-            var keys: std.ArrayList(KeyPress) = .empty;
-            while (steps.next()) |step| {
-                const key = KeyPress.parse(step) catch return try Diagnostic.init(allocator, .invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(context), @tagName(action) });
-                try keys.append(storage, key);
-            }
-            if (keys.items.len == 0)
-                return try Diagnostic.init(allocator, .invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(context), @tagName(action) });
-            try parsed.append(temporary, .{
-                .binding = .{ .context = context, .action = action, .keys = try keys.toOwnedSlice(storage) },
-                .expression = expression,
-            });
-            return null;
-        }
-
-        /// Matches a KeyPress or a matcher whose matches(KeyPress) method returns bool.
+        /// Matches a KeyPress, KeyEvent, or matcher whose matches(KeyPress) method returns bool.
+        /// Modifier events track sides; releases preserve pending keys, and focus loss clears all input state.
         /// Pass only the contexts enabled for the current input, in priority order.
         /// Bindings in omitted contexts are inactive; include shared contexts explicitly.
         /// Earlier active contexts win, then bindings in JSON declaration order.
         /// Earlier pending bindings take priority.
         /// A mismatch clears pending keys and retries the event as a new binding.
         /// Pending keys in inactive contexts are discarded. Sequences have no timeout.
-        pub fn receive(self: *Self, active_contexts: []const Context, matcher: anytype) Result {
-            var was_pending = false;
+        pub fn receive(self: *Self, active_contexts: []const Context, input: anytype) Result {
             for (self.bindings) |*binding| {
-                if (std.mem.indexOfScalar(Context, active_contexts, binding.context) == null) {
-                    binding.next_step = null;
+                if (std.mem.indexOfScalar(Context, active_contexts, binding.context) == null) binding.next_step = null;
+            }
+            const Input = @TypeOf(input);
+            const MatcherType = if (@typeInfo(Input) == .pointer) @typeInfo(Input).pointer.child else Input;
+            const has_event = switch (@typeInfo(MatcherType)) {
+                .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(MatcherType, "keyEvent"),
+                else => false,
+            };
+            if (comptime Input == KeyPress or Input == KeyEvent or has_event) {
+                const event: KeyEvent = if (Input == KeyPress)
+                    .{ .press = input }
+                else if (Input == KeyEvent)
+                    input
+                else
+                    input.keyEvent() orelse return .none;
+                switch (event) {
+                    .focus_lost => {
+                        self.cancel();
+                        return .none;
+                    },
+                    .release => |press| {
+                        _ = self.observeModifiers(press, true);
+                        return .none;
+                    },
+                    .press => |press| {
+                        const modifiers = self.observeModifiers(press, false);
+                        const matcher = if (Input == KeyPress or Input == KeyEvent)
+                            KeyPress{ .key = press.key, .modifiers = modifiers }
+                        else
+                            input.withModifiers(modifiers);
+                        return self.match(active_contexts, matcher, key.modifierKey(press.key) != null);
+                    },
                 }
+            } else {
+                return self.match(active_contexts, input, false);
+            }
+        }
+
+        fn observeModifiers(self: *Self, press: KeyPress, release: bool) Modifiers {
+            const modifier = key.modifierKey(press.key);
+            inline for (std.meta.fields(Modifiers)) |field| {
+                const reported = @field(press.modifiers, field.name);
+                const previous = @field(self.held_modifiers, field.name);
+                @field(self.held_modifiers, field.name) = if (reported == .any and previous != .none) previous else reported;
+                if (modifier) |own| {
+                    if (std.mem.eql(u8, field.name, @tagName(own.kind))) {
+                        @field(self.held_modifiers, field.name) = if (release) switch (reported) {
+                            .none => .none,
+                            // The released side is up, so an active aggregate flag identifies the opposite side.
+                            .any => if (own.side == .left) .right else .left,
+                            else => reported,
+                        } else switch (reported) {
+                            .left, .right, .both => reported,
+                            else => switch (previous) {
+                                .none => own.side,
+                                .left, .right => if (previous == own.side) previous else .both,
+                                // A prior unknown side may already include this key; a press cannot resolve it.
+                                .any, .both => previous,
+                            },
+                        };
+                    }
+                }
+            }
+            return self.held_modifiers;
+        }
+
+        fn match(self: *Self, active_contexts: []const Context, matcher: anytype, modifier_press: bool) Result {
+            var was_pending = false;
+            for (self.bindings) |binding| {
                 if (binding.next_step != null) was_pending = true;
+            }
+            if (modifier_press) {
+                // Unbound modifier presses prepare the next shortcut without consuming a sequence step.
+                var configured = false;
+                for (self.bindings) |binding| {
+                    if (std.mem.indexOfScalar(Context, active_contexts, binding.context) == null) continue;
+                    if (matcher.matches(binding.keys[0]) or
+                        (binding.next_step != null and matcher.matches(binding.keys[binding.next_step.?])))
+                    {
+                        configured = true;
+                        break;
+                    }
+                }
+                if (!configured) return if (was_pending) .pending else .none;
             }
             if (was_pending) {
                 var pending = false;
@@ -181,7 +262,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                             binding.next_step = null;
                             if (pending) continue;
                             const action = binding.action;
-                            self.cancel();
+                            self.clearPending();
                             return .{ .action = action };
                         }
                         binding.next_step = next + 1;
@@ -189,7 +270,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                     }
                 }
                 if (pending) return .pending;
-                self.cancel();
+                self.clearPending();
             }
             var pending = false;
             for (active_contexts, 0..) |context, context_index| {
@@ -199,7 +280,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                     if (binding.keys.len == 1) {
                         if (pending) continue;
                         const action = binding.action;
-                        self.cancel();
+                        self.clearPending();
                         return .{ .action = action };
                     }
                     binding.next_step = 1;
@@ -209,8 +290,13 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
             return if (pending) .pending else .none;
         }
 
-        /// Clears pending keys. Call when focus changes without a key event.
+        /// Clears pending keys and held modifier sides. Call when focus changes without an input event.
         pub fn cancel(self: *Self) void {
+            self.held_modifiers = .{};
+            self.clearPending();
+        }
+
+        fn clearPending(self: *Self) void {
             for (self.bindings) |*binding| binding.next_step = null;
         }
 
@@ -224,7 +310,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
 
 fn overlaps(a: []const KeyPress, b: []const KeyPress) bool {
     for (a[0..@min(a.len, b.len)], b[0..@min(a.len, b.len)]) |ak, bk| {
-        if (!ak.matches(bk)) return false;
+        if (!key.overlaps(ak, bk)) return false;
     }
     return true;
 }
@@ -381,6 +467,29 @@ test "load identifies sequence prefix collisions" {
     try testing.expectEqual(Diagnostic.Kind.collision, actions.kind);
 }
 
+test "load rejects overlapping sided and unsided modifiers" {
+    // Wildcards can overlap in different modifier groups, regardless of declaration order.
+    const Map = Bindings(enum { list }, enum { first, second });
+    for ([_][]const u8{
+        \\{"list": {"first": ["LeftCtrl+x"], "second": ["Ctrl+x"]}}
+        ,
+        \\{"list": {"first": ["Ctrl+x"], "second": ["RightCtrl+x"]}}
+        ,
+        \\{"list": {"first": ["LeftCtrl+Alt+x"], "second": ["Ctrl+RightAlt+x"]}}
+        ,
+        \\{"list": {"first": ["LeftCtrl+x y"], "second": ["Ctrl+x"]}}
+        ,
+    }) |json| {
+        var loaded = try Map.load(testing.allocator, json);
+        defer switch (loaded) {
+            .bindings => |*bindings| bindings.deinit(),
+            .invalid => |*diagnostic| diagnostic.deinit(),
+        };
+        try testing.expect(loaded == .invalid);
+        try testing.expectEqual(Diagnostic.Kind.collision, loaded.invalid.kind);
+    }
+}
+
 test "load owns keys after JSON is freed" {
     // Applications may release their configuration buffers after loading.
     const Action = enum { down, up };
@@ -396,11 +505,11 @@ test "load owns keys after JSON is freed" {
 
     try testing.expectEqual(Action.down, bindings.receive(&.{.list}, KeyPress{
         .key = .{ .character = 'n' },
-        .modifiers = .{ .ctrl = true },
+        .modifiers = .{ .ctrl = .any },
     }).action);
     try testing.expectEqual(Action.up, bindings.receive(&.{.list}, KeyPress{
         .key = .{ .character = 'あ' },
-        .modifiers = .{ .ctrl = true },
+        .modifiers = .{ .ctrl = .any },
     }).action);
 }
 

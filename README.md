@@ -41,7 +41,7 @@ const vaxis = @import("vaxis");
 const Context = enum { global, list };
 const Action = enum { quit, down, up, top };
 const Bindings = keymap.Bindings(Context, Action);
-const Event = union(enum) { key_press: vaxis.Key };
+const Event = union(enum) { key_press: vaxis.Key, key_release: vaxis.Key, focus_out };
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
@@ -69,17 +69,20 @@ pub fn main(init: std.process.Init) !void {
     var tty_buffer: [1024]u8 = undefined;
     var tty = try vaxis.Tty.init(io, &tty_buffer);
     defer tty.deinit();
-    var vx = try vaxis.init(io, allocator, init.environ_map, .{});
+    var vx = try vaxis.init(io, allocator, init.environ_map, .{
+        .kitty_keyboard_flags = .{ .report_events = true },
+    });
     defer vx.deinit(allocator, tty.writer());
     var loop: vaxis.Loop(Event) = .init(io, &tty, &vx);
     try loop.start();
     defer loop.stop();
+    try vx.queryTerminal(tty.writer(), .fromSeconds(1));
 
     var row: usize = 0;
     const active_contexts: []const Context = &.{ .list, .global };
     while (true) {
         const event = try loop.nextEvent();
-        switch (bindings.receive(active_contexts, keymap.libvaxisMatcher(event.key_press))) {
+        switch (bindings.receive(active_contexts, keymap.libvaxisMatcher(event))) {
             .action => |action| switch (action) {
                 .quit => return,
                 .down => row +|= 1,
@@ -114,7 +117,7 @@ Context and action names must belong to the application's enums.
 | --- | --- |
 | `load(allocator, json)` | Load JSON and return `.bindings` or `.invalid`. |
 | `receive(active_contexts, key)` | Match input in the enabled contexts and return `.none`, `.pending`, or `.action: Action`. |
-| `cancel()` | Clear pending keys when focus changes without input. |
+| `cancel()` | Clear pending keys and held modifier sides when focus changes without input. |
 | `deinit()` | Free the configuration and input state. |
 
 For an application with a dialog, select contexts from the current view:
@@ -127,7 +130,7 @@ const active_contexts: []const Context = if (dialog_open)
 else
     &.{ .list, .global };
 
-const result = bindings.receive(active_contexts, keymap.libvaxisMatcher(event.key_press));
+const result = bindings.receive(active_contexts, keymap.libvaxisMatcher(event));
 ```
 
 While the dialog is open, omitting `list` prevents its bindings from moving the background selection.  
@@ -138,11 +141,14 @@ An invalid configuration returns a `Diagnostic` with a `kind` and an owned `mess
 Messages identify affected names and key expressions; JSON syntax errors also include `position` with `line` and `column`, starting at 1.  
 Call `deinit()` on the selected payload. Only allocation failures return `error.OutOfMemory`.
 
-Pass a `KeyPress` directly, or use `libvaxisMatcher` for native text and Shift matching.  
+Pass a `KeyPress` or `KeyEvent` directly, or use `libvaxisMatcher` for native text and Shift matching.  
 Other backends can pass a type with `matches(KeyPress) bool`.  
 Create one `Bindings` instance per input stream.
 
-Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.  
+Loading rejects overlapping normalized keys assigned to different actions and sequence prefixes within a context.  
+Normalization covers ASCII Shift, named control characters, modifier aliases, and sided modifier requirements.  
+`Ctrl+x` overlaps `LeftCtrl+x`; `LeftCtrl+x` and `RightCtrl+x` remain distinct.  
+Keyboard layout and native text can create additional overlaps, such as `:` and `Shift+;`. These follow context priority and JSON declaration order.  
 A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.  
 Sequences have no timeout; call `cancel()` when focus changes without input.
 
@@ -163,6 +169,7 @@ Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive 
 | Keypad navigation | `KeypadLeft`, `KeypadRight`, `KeypadUp`, `KeypadDown`, `KeypadPageUp`, `KeypadPageDown`, `KeypadHome`, `KeypadEnd`, `KeypadInsert`, `KeypadDelete`, `KeypadBegin` |
 | Media | `MediaPlay`, `MediaPause`, `MediaPlayPause`, `MediaReverse`, `MediaStop`, `MediaFastForward`, `MediaRewind`, `MediaTrackNext`, `MediaTrackPrevious`, `MediaRecord` |
 | Volume | `LowerVolume`, `RaiseVolume`, `MuteVolume` |
+| Modifier keys | `LeftShift`, `RightShift`, `LeftControl`, `RightControl`, `LeftAlt`, `RightAlt`, `LeftSuper`, `RightSuper`, `LeftHyper`, `RightHyper`, `LeftMeta`, `RightMeta` |
 
 Keypad names remain distinct from main-keyboard bindings when the backend reports keypad identity.  
 `libvaxisMatcher` also reads keypad identity from `base_layout_codepoint` on Windows.
@@ -177,7 +184,21 @@ Keypad names remain distinct from main-keyboard bindings when the backend report
 | Hyper | `Hyper` |
 
 These names work on every target. The input backend must report the configured key and modifiers.  
-`KeyPress.parse` converts a string to typed input; `KeyPress.matches` compares key presses.
+Prefix modifier names with `Left` or `Right`, such as `LeftCtrl+x`, `RightOption+x`, or `LeftCmd+q`.  
+An unsided modifier accepts either side or both. A sided modifier requires exactly that side.  
+`LeftCtrl+RightCtrl+x` requires both Ctrl keys. `LeftControl` alone binds the modifier key's press.  
+
+`Modifiers` fields use `.none`, `.any`, `.left`, `.right`, or `.both`; `.any` accepts every pressed side in configuration.  
+For input, `.any` means the side is unknown. `KeyPress.matches(spec)` matches the input against a configuration requirement.  
+`KeyPress.parse` converts a string to a typed key press.
+
+For sided shortcuts, pass every modifier press and release to the same `Bindings` instance.  
+Use `KeyEvent.press` and `.release` with the modifier state after each event, or `libvaxisMatcher(event)` with full libvaxis events.  
+The libvaxis event union must include `key_release`; enable `.kitty_keyboard_flags.report_events` and call `queryTerminal` as shown above.  
+The backend must report individual modifier keys and releases. Aggregate modifier flags alone match only unsided shortcuts.  
+If a backend reports sides directly, pass them in `KeyPress.modifiers` without tracking events.  
+Releases and unbound modifier presses preserve pending sequences. `KeyEvent.focus_lost` or native `focus_out` clears pending keys and held sides.  
+Call `cancel()` when the application detects focus loss without a backend event.
 
 ## Development
 

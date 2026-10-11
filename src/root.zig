@@ -24,7 +24,7 @@
 //!
 //! const key: keymap.KeyPress = .{
 //!     .key = .{ .character = 'q' },
-//!     .modifiers = .{ .super = true },
+//!     .modifiers = .{ .super = .any },
 //! };
 //! switch (bindings.receive(&.{.list}, key)) {
 //!     .action => |action| handleAction(action),
@@ -32,7 +32,7 @@
 //! }
 //! ```
 //!
-//! For libvaxis input, pass libvaxisMatcher(event.key_press) to receive.
+//! For libvaxis input, pass libvaxisMatcher(event) to receive, including modifier presses and releases.
 
 const key = @import("key.zig");
 
@@ -40,6 +40,7 @@ pub const NamedKey = key.NamedKey;
 pub const Modifiers = key.Modifiers;
 pub const Key = key.Key;
 pub const KeyPress = key.KeyPress;
+pub const KeyEvent = key.KeyEvent;
 pub const Diagnostic = @import("bindings.zig").Diagnostic;
 pub const Bindings = @import("bindings.zig").Bindings;
 pub const libvaxisMatcher = @import("matcher/libvaxis.zig").libvaxisMatcher;

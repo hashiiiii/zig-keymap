@@ -101,6 +101,18 @@ pub const NamedKey = enum {
     lower_volume,
     raise_volume,
     mute_volume,
+    left_shift,
+    left_control,
+    left_alt,
+    left_super,
+    left_hyper,
+    left_meta,
+    right_shift,
+    right_control,
+    right_alt,
+    right_super,
+    right_hyper,
+    right_meta,
 
     fn label(comptime self: NamedKey) []const u8 {
         const text = comptime blk: {
@@ -119,14 +131,23 @@ pub const NamedKey = enum {
     }
 };
 
-/// Modifier flags matched with a `Key`.
+/// Modifier requirements or the modifiers held during an input event.
 pub const Modifiers = packed struct {
-    shift: bool = false,
-    ctrl: bool = false,
-    alt: bool = false,
-    super: bool = false,
-    meta: bool = false,
-    hyper: bool = false,
+    pub const State = enum(u3) {
+        none,
+        /// Any pressed side in configuration; an unknown side in input.
+        any,
+        left,
+        right,
+        both,
+    };
+
+    shift: State = .none,
+    ctrl: State = .none,
+    alt: State = .none,
+    super: State = .none,
+    meta: State = .none,
+    hyper: State = .none,
 };
 
 /// One character or named key, without modifiers.
@@ -147,13 +168,21 @@ pub const KeyPress = struct {
     /// Parses one character or a named key with optional modifiers.
     /// Key and modifier names ignore case; characters keep their case.
     /// Accepts Ctrl/Control, Alt/Option/Opt, Super/Command/Cmd/Win/Windows, Shift, Meta, and Hyper.
+    /// Left and Right prefixes require that side; using both prefixes requires both sides.
     /// Invalid strings return error.InvalidKey.
     pub fn parse(text: []const u8) error{InvalidKey}!KeyPress {
         var remaining = text;
         var modifiers: Modifiers = .{};
         while (!std.mem.eql(u8, remaining, "+")) {
             const separator = std.mem.indexOfScalar(u8, remaining, '+') orelse break;
-            const name = remaining[0..separator];
+            var name = remaining[0..separator];
+            const side: Modifiers.State = if (name.len > 4 and std.ascii.eqlIgnoreCase(name[0..4], "Left")) blk: {
+                name = name[4..];
+                break :blk .left;
+            } else if (name.len > 5 and std.ascii.eqlIgnoreCase(name[0..5], "Right")) blk: {
+                name = name[5..];
+                break :blk .right;
+            } else .any;
             const prefix = if (std.ascii.eqlIgnoreCase(name, "Control"))
                 "ctrl"
             else if (std.ascii.eqlIgnoreCase(name, "Option") or std.ascii.eqlIgnoreCase(name, "Opt"))
@@ -166,8 +195,13 @@ pub const KeyPress = struct {
             var found = false;
             inline for (std.meta.fields(Modifiers)) |field| {
                 if (std.ascii.eqlIgnoreCase(prefix, field.name)) {
-                    if (@field(modifiers, field.name)) return error.InvalidKey;
-                    @field(modifiers, field.name) = true;
+                    const previous = @field(modifiers, field.name);
+                    @field(modifiers, field.name) = if (previous == .none)
+                        side
+                    else if ((previous == .left and side == .right) or (previous == .right and side == .left))
+                        .both
+                    else
+                        return error.InvalidKey;
                     found = true;
                 }
             }
@@ -184,10 +218,13 @@ pub const KeyPress = struct {
         return .{ .key = .{ .character = character }, .modifiers = modifiers };
     }
 
-    /// Matches one key press. ASCII uppercase equals the lowercase letter with Shift.
+    /// Matches this input against a configured key. Unknown sides match only unsided modifiers.
+    /// ASCII uppercase equals the lowercase letter with Shift.
     /// Space, Tab, Enter, Escape, and Backspace also match their character values.
-    pub fn matches(self: KeyPress, other: KeyPress) bool {
-        return std.meta.eql(self.normalized(), other.normalized());
+    pub fn matches(self: KeyPress, spec: KeyPress) bool {
+        const actual = self.normalized();
+        const required = spec.normalized();
+        return std.meta.eql(actual.key, required.key) and modifiersMatch(actual.modifiers, required.modifiers);
     }
 
     fn normalized(self: KeyPress) KeyPress {
@@ -204,28 +241,96 @@ pub const KeyPress = struct {
         }
         if (result.key == .character and result.key.character >= 'A' and result.key.character <= 'Z') {
             result.key.character += 'a' - 'A';
-            result.modifiers.shift = true;
+            if (result.modifiers.shift == .none) result.modifiers.shift = .any;
+        }
+        if (modifierKey(result.key)) |modifier| {
+            inline for (std.meta.fields(Modifiers)) |field| {
+                if (std.mem.eql(u8, field.name, @tagName(modifier.kind))) {
+                    const state = @field(result.modifiers, field.name);
+                    @field(result.modifiers, field.name) = switch (state) {
+                        .none, .any => state,
+                        .left, .right => if (state == modifier.side) .none else state,
+                        .both => if (modifier.side == .left) .right else .left,
+                    };
+                }
+            }
         }
         return result;
     }
 };
 
+/// Input modifiers describe the state after the event; a modifier press also identifies its own side.
+/// Releases update held modifiers without consuming sequence steps. Focus loss clears all input state.
+pub const KeyEvent = union(enum) {
+    press: KeyPress,
+    release: KeyPress,
+    focus_lost,
+};
+
+pub fn modifiersMatch(actual: Modifiers, required: Modifiers) bool {
+    inline for (std.meta.fields(Modifiers)) |field| {
+        const input = @field(actual, field.name);
+        const spec = @field(required, field.name);
+        if (spec == .any) {
+            if (input == .none) return false;
+        } else if (input != spec) return false;
+    }
+    return true;
+}
+
+pub fn overlaps(a: KeyPress, b: KeyPress) bool {
+    const first = a.normalized();
+    const second = b.normalized();
+    if (!std.meta.eql(first.key, second.key)) return false;
+    inline for (std.meta.fields(Modifiers)) |field| {
+        const left = @field(first.modifiers, field.name);
+        const right = @field(second.modifiers, field.name);
+        if (left != right) {
+            if (left == .none or right == .none) return false;
+            if (left != .any and right != .any) return false;
+        }
+    }
+    return true;
+}
+
+pub fn modifierKey(key: Key) ?struct {
+    kind: enum { shift, ctrl, alt, super, hyper, meta },
+    side: Modifiers.State,
+} {
+    if (key != .named) return null;
+    return switch (key.named) {
+        .left_shift => .{ .kind = .shift, .side = .left },
+        .right_shift => .{ .kind = .shift, .side = .right },
+        .left_control => .{ .kind = .ctrl, .side = .left },
+        .right_control => .{ .kind = .ctrl, .side = .right },
+        .left_alt => .{ .kind = .alt, .side = .left },
+        .right_alt => .{ .kind = .alt, .side = .right },
+        .left_super => .{ .kind = .super, .side = .left },
+        .right_super => .{ .kind = .super, .side = .right },
+        .left_hyper => .{ .kind = .hyper, .side = .left },
+        .right_hyper => .{ .kind = .hyper, .side = .right },
+        .left_meta => .{ .kind = .meta, .side = .left },
+        .right_meta => .{ .kind = .meta, .side = .right },
+        else => null,
+    };
+}
+
 test "parse preserves character case and accepts case-insensitive names" {
     // Character case changes bindings, while modifier and named-key spelling does not.
-    try testing.expectEqual(KeyPress{ .key = .{ .character = 'あ' }, .modifiers = .{ .ctrl = true } }, try KeyPress.parse("cTrL+あ"));
+    try testing.expectEqual(KeyPress{ .key = .{ .character = 'あ' }, .modifiers = .{ .ctrl = .any } }, try KeyPress.parse("cTrL+あ"));
     try testing.expectEqual(KeyPress{ .key = .{ .character = 'J' } }, try KeyPress.parse("J"));
     try testing.expectEqual(KeyPress{ .key = .{ .named = .page_down } }, try KeyPress.parse("pagedown"));
     try testing.expectEqual(KeyPress{
         .key = .{ .named = .enter },
-        .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true, .meta = true, .hyper = true },
+        .modifiers = .{ .ctrl = .any, .alt = .any, .shift = .any, .super = .any, .meta = .any, .hyper = .any },
     }, try KeyPress.parse("Hyper+Meta+Super+Shift+Alt+Ctrl+Enter"));
 }
 
 test "parse accepts modifier aliases without OS selection" {
     // OS-specific spellings must set the same modifier flags on every target.
-    const alt: KeyPress = .{ .key = .{ .character = 'k' }, .modifiers = .{ .alt = true } };
-    const super: KeyPress = .{ .key = .{ .character = 'k' }, .modifiers = .{ .super = true } };
-    const ctrl: KeyPress = .{ .key = .{ .character = 'k' }, .modifiers = .{ .ctrl = true } };
+    const alt: KeyPress = .{ .key = .{ .character = 'k' }, .modifiers = .{ .alt = .any } };
+    const super: KeyPress = .{ .key = .{ .character = 'k' }, .modifiers = .{ .super = .any } };
+    const ctrl: KeyPress = .{ .key = .{ .character = 'k' }, .modifiers = .{ .ctrl = .any } };
     try testing.expectEqual(alt, try KeyPress.parse("oPtIoN+k"));
     try testing.expectEqual(alt, try KeyPress.parse("OpT+k"));
     try testing.expectEqual(super, try KeyPress.parse("cOmMaNd+k"));
@@ -261,7 +366,7 @@ test "parse rejects repeated modifiers written as platform aliases" {
 test "parse accepts a literal plus with or without modifiers" {
     // Plus is both a key and the modifier separator.
     try testing.expectEqual(KeyPress{ .key = .{ .character = '+' } }, try KeyPress.parse("+"));
-    try testing.expectEqual(KeyPress{ .key = .{ .character = '+' }, .modifiers = .{ .ctrl = true } }, try KeyPress.parse("Ctrl++"));
+    try testing.expectEqual(KeyPress{ .key = .{ .character = '+' }, .modifiers = .{ .ctrl = .any } }, try KeyPress.parse("Ctrl++"));
 }
 
 test "parse rejects malformed key expressions" {
@@ -281,8 +386,8 @@ test "matches detects ASCII Shift aliases without merging other modifiers" {
     try testing.expect(!(try KeyPress.parse("J")).matches(try KeyPress.parse("j")));
     try testing.expect(!(try KeyPress.parse("Ctrl+j")).matches(try KeyPress.parse("j")));
     const super = try KeyPress.parse("Cmd+k");
-    try testing.expect(!super.matches(.{ .key = .{ .character = 'k' }, .modifiers = .{ .meta = true } }));
-    try testing.expect(!super.matches(.{ .key = .{ .character = 'k' }, .modifiers = .{ .hyper = true } }));
+    try testing.expect(!super.matches(.{ .key = .{ .character = 'k' }, .modifiers = .{ .meta = .any } }));
+    try testing.expect(!super.matches(.{ .key = .{ .character = 'k' }, .modifiers = .{ .hyper = .any } }));
 }
 
 test "matches detects named keys and their control character aliases" {
@@ -292,4 +397,23 @@ test "matches detects named keys and their control character aliases" {
     try testing.expect((try KeyPress.parse("Enter")).matches(try KeyPress.parse("\r")));
     try testing.expect((try KeyPress.parse("Escape")).matches(try KeyPress.parse("\x1b")));
     try testing.expect((try KeyPress.parse("Backspace")).matches(try KeyPress.parse("\x7f")));
+}
+
+test "parse accepts individual left and right modifier keys" {
+    // Modifier presses must remain configurable independently of ordinary shortcuts.
+    try testing.expectEqualStrings("left_control", @tagName((try KeyPress.parse("LeftControl")).key.named));
+    try testing.expectEqualStrings("right_control", @tagName((try KeyPress.parse("RightControl")).key.named));
+    try testing.expectEqualStrings("left_shift", @tagName((try KeyPress.parse("LeftShift")).key.named));
+    try testing.expectEqualStrings("right_super", @tagName((try KeyPress.parse("RightSuper")).key.named));
+}
+
+test "parse accepts shortcuts with left and right modifiers" {
+    // Both sides must remain independently configurable instead of becoming generic Ctrl.
+    try testing.expectEqual(Modifiers{ .ctrl = .left }, (try KeyPress.parse("LeftControl+x")).modifiers);
+    try testing.expectEqual(Modifiers{ .ctrl = .right }, (try KeyPress.parse("RightCtrl+x")).modifiers);
+    try testing.expectEqual(Modifiers{ .ctrl = .both }, (try KeyPress.parse("LeftControl+RightControl+x")).modifiers);
+    try testing.expectEqual(Modifiers{ .alt = .left, .super = .right }, (try KeyPress.parse("lEfToPtIoN+RightCmd+x")).modifiers);
+    try testing.expectError(error.InvalidKey, KeyPress.parse("LeftCtrl+LeftControl+x"));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("Ctrl+RightControl+x"));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("LeftCtrl+RightCtrl+LeftCtrl+x"));
 }

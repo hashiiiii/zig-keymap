@@ -1,19 +1,72 @@
-const KeyPress = @import("../key.zig").KeyPress;
+const std = @import("std");
+const keymap = @import("../key.zig");
+const KeyPress = keymap.KeyPress;
+const KeyEvent = keymap.KeyEvent;
+const Modifiers = keymap.Modifiers;
 
-/// Adapts a libvaxis Key for Bindings.receive, preserving native text and Shift matching.
+/// Adapts a libvaxis event or Key for Bindings.receive, preserving native text and Shift matching.
 /// ASCII uppercase also matches a lowercase codepoint with Shift.
-/// Pass the key_press payload from loop.nextEvent().
+/// Pass full events to track left/right modifiers and focus loss. Other events are ignored.
 /// Keypad identity also uses base_layout_codepoint.
-pub fn libvaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {
-    return .{ .key = key };
+pub fn libvaxisMatcher(input: anytype) Matcher(NativeKeyType(@TypeOf(input))) {
+    const Input = @TypeOf(input);
+    const Result = Matcher(NativeKeyType(Input));
+    if (@typeInfo(Input) == .@"union") {
+        if (input == .key_press) return Result.init(input.key_press, false);
+        if (@hasField(Input, "key_release")) {
+            if (input == .key_release) return Result.init(input.key_release, true);
+        }
+        if (@hasField(Input, "focus_out")) {
+            if (input == .focus_out) return .{ .event = .focus_lost };
+        }
+        return .{};
+    }
+    return Result.init(input, false);
+}
+
+fn NativeKeyType(comptime Input: type) type {
+    if (@typeInfo(Input) == .@"union") {
+        inline for (std.meta.fields(Input)) |field| {
+            if (comptime std.mem.eql(u8, field.name, "key_press")) return field.type;
+        }
+        @compileError("libvaxis events must include key_press");
+    }
+    return Input;
 }
 
 fn Matcher(comptime NativeKey: type) type {
     return struct {
-        key: NativeKey,
+        const Self = @This();
+        key: ?NativeKey = null,
+        event: ?KeyEvent = null,
 
-        pub fn matches(self: @This(), spec: KeyPress) bool {
-            var native = self.key;
+        fn init(native: NativeKey, release: bool) Self {
+            var press: KeyPress = .{ .key = .{ .character = native.codepoint } };
+            inline for (comptime std.meta.tags(keymap.NamedKey)) |named| {
+                if (native.codepoint == @field(NativeKey, @tagName(named))) press.key = .{ .named = named };
+            }
+            inline for (std.meta.fields(Modifiers)) |field| {
+                @field(press.modifiers, field.name) = if (@field(native.mods, field.name)) .any else .none;
+            }
+            return .{ .key = native, .event = if (release) .{ .release = press } else .{ .press = press } };
+        }
+
+        pub fn keyEvent(self: Self) ?KeyEvent {
+            return self.event;
+        }
+
+        pub fn withModifiers(self: Self, modifiers: Modifiers) Self {
+            var result = self;
+            result.event.?.press.modifiers = modifiers;
+            return result;
+        }
+
+        pub fn matches(self: Self, spec: KeyPress) bool {
+            const event = self.event orelse return false;
+            if (event != .press) return false;
+            const press = event.press;
+            if (keymap.modifierKey(press.key) != null) return press.matches(spec);
+            var native = self.key.?;
             // Windows preserves keypad identity in the base codepoint while reporting text as a character.
             if (native.base_layout_codepoint) |base| {
                 if (base >= NativeKey.kp_0 and base <= NativeKey.kp_begin) native.codepoint = base;
@@ -28,37 +81,37 @@ fn Matcher(comptime NativeKey: type) type {
             if (native.codepoint >= NativeKey.kp_0 and native.codepoint <= NativeKey.kp_begin and native.codepoint != codepoint)
                 return false;
             var modifiers: @TypeOf(native.mods) = .{
-                .shift = spec.modifiers.shift,
-                .ctrl = spec.modifiers.ctrl,
-                .alt = spec.modifiers.alt,
-                .super = spec.modifiers.super,
-                .meta = spec.modifiers.meta,
-                .hyper = spec.modifiers.hyper,
+                .shift = spec.modifiers.shift != .none,
+                .ctrl = spec.modifiers.ctrl != .none,
+                .alt = spec.modifiers.alt != .none,
+                .super = spec.modifiers.super != .none,
+                .meta = spec.modifiers.meta != .none,
+                .hyper = spec.modifiers.hyper != .none,
             };
             const ascii_letter = (codepoint >= 'a' and codepoint <= 'z') or (codepoint >= 'A' and codepoint <= 'Z');
-            // Native text consumes Shift; explicit bindings and unchanged non-letter keys must retain it.
-            if (!ascii_letter and spec.modifiers.shift != native.mods.shift) {
-                if (spec.modifiers.shift or native.codepoint == codepoint) return false;
+            var actual = press.modifiers;
+            var required = spec.modifiers;
+            if (ascii_letter) {
+                // Optional text must not let a shifted ASCII event match an unshifted binding.
+                if (codepoint >= 'A' and codepoint <= 'Z' and required.shift == .none) required.shift = .any;
+                if (native.codepoint >= 'A' and native.codepoint <= 'Z' and actual.shift == .none) actual.shift = .any;
+            } else if (required.shift == .none and native.codepoint != codepoint and spec.key == .character) {
+                // Produced punctuation can consume Shift without merging unchanged keys such as Space or digits.
+                actual.shift = .none;
             }
+            if (!keymap.modifiersMatch(actual, required)) return false;
             if (spec.key == .named) return native.matchExact(codepoint, modifiers);
             if (native.matches(codepoint, modifiers)) return true;
-            if (spec.modifiers.shift and ascii_letter) {
+            if (spec.modifiers.shift != .none and ascii_letter) {
                 // Shifted-codepoint matching consumes Shift, so test the uppercase spelling too.
                 modifiers.shift = false;
                 const uppercase = if (codepoint >= 'a' and codepoint <= 'z') codepoint - ('a' - 'A') else codepoint;
                 if (native.matches(uppercase, modifiers)) return true;
             }
-            return spec.matches(.{
+            return (KeyPress{
                 .key = .{ .character = native.codepoint },
-                .modifiers = .{
-                    .shift = native.mods.shift,
-                    .ctrl = native.mods.ctrl,
-                    .alt = native.mods.alt,
-                    .super = native.mods.super,
-                    .meta = native.mods.meta,
-                    .hyper = native.mods.hyper,
-                },
-            });
+                .modifiers = actual,
+            }).matches(spec);
         }
     };
 }
@@ -73,7 +126,7 @@ test "libvaxisMatcher forwards named keys and every modifier" {
     });
     try testing.expect(matcher.matches(.{
         .key = .{ .named = .enter },
-        .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true, .meta = true, .hyper = true },
+        .modifiers = .{ .ctrl = .any, .alt = .any, .shift = .any, .super = .any, .meta = .any, .hyper = .any },
     }));
     try testing.expect(!matcher.matches(.{ .key = .{ .named = .enter } }));
 }
