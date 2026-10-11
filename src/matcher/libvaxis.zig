@@ -3,7 +3,7 @@ const KeyPress = @import("../key.zig").KeyPress;
 /// Adapts a libvaxis Key for Bindings.receive, preserving native text and Shift matching.
 /// ASCII uppercase also matches a lowercase codepoint with Shift.
 /// Pass the key_press payload from loop.nextEvent().
-/// The adapter does not match physical keys through base_layout_codepoint.
+/// Keypad identity also uses base_layout_codepoint.
 pub fn libvaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {
     return .{ .key = key };
 }
@@ -13,6 +13,11 @@ fn Matcher(comptime NativeKey: type) type {
         key: NativeKey,
 
         pub fn matches(self: @This(), spec: KeyPress) bool {
+            var native = self.key;
+            // Windows preserves keypad identity in the base codepoint while reporting text as a character.
+            if (native.base_layout_codepoint) |base| {
+                if (base >= NativeKey.kp_0 and base <= NativeKey.kp_begin) native.codepoint = base;
+            }
             const codepoint = switch (spec.key) {
                 .character => |cp| cp,
                 .named => |named| switch (named) {
@@ -20,9 +25,9 @@ fn Matcher(comptime NativeKey: type) type {
                 },
             };
             // Keypad text must not hide its dedicated identity from earlier main-key bindings.
-            if (self.key.codepoint >= NativeKey.kp_0 and self.key.codepoint <= NativeKey.kp_begin and self.key.codepoint != codepoint)
+            if (native.codepoint >= NativeKey.kp_0 and native.codepoint <= NativeKey.kp_begin and native.codepoint != codepoint)
                 return false;
-            var modifiers: @TypeOf(self.key.mods) = .{
+            var modifiers: @TypeOf(native.mods) = .{
                 .shift = spec.modifiers.shift,
                 .ctrl = spec.modifiers.ctrl,
                 .alt = spec.modifiers.alt,
@@ -30,24 +35,28 @@ fn Matcher(comptime NativeKey: type) type {
                 .meta = spec.modifiers.meta,
                 .hyper = spec.modifiers.hyper,
             };
-            if (self.key.matches(codepoint, modifiers)) return true;
-            if (spec.key == .character and spec.modifiers.shift and
-                ((codepoint >= 'a' and codepoint <= 'z') or (codepoint >= 'A' and codepoint <= 'Z')))
-            {
+            const ascii_letter = (codepoint >= 'a' and codepoint <= 'z') or (codepoint >= 'A' and codepoint <= 'Z');
+            // Native text consumes Shift; explicit bindings and unchanged non-letter keys must retain it.
+            if (!ascii_letter and spec.modifiers.shift != native.mods.shift) {
+                if (spec.modifiers.shift or native.codepoint == codepoint) return false;
+            }
+            if (spec.key == .named) return native.matchExact(codepoint, modifiers);
+            if (native.matches(codepoint, modifiers)) return true;
+            if (spec.modifiers.shift and ascii_letter) {
                 // Shifted-codepoint matching consumes Shift, so test the uppercase spelling too.
                 modifiers.shift = false;
                 const uppercase = if (codepoint >= 'a' and codepoint <= 'z') codepoint - ('a' - 'A') else codepoint;
-                if (self.key.matches(uppercase, modifiers)) return true;
+                if (native.matches(uppercase, modifiers)) return true;
             }
             return spec.matches(.{
-                .key = .{ .character = self.key.codepoint },
+                .key = .{ .character = native.codepoint },
                 .modifiers = .{
-                    .shift = self.key.mods.shift,
-                    .ctrl = self.key.mods.ctrl,
-                    .alt = self.key.mods.alt,
-                    .super = self.key.mods.super,
-                    .meta = self.key.mods.meta,
-                    .hyper = self.key.mods.hyper,
+                    .shift = native.mods.shift,
+                    .ctrl = native.mods.ctrl,
+                    .alt = native.mods.alt,
+                    .super = native.mods.super,
+                    .meta = native.mods.meta,
+                    .hyper = native.mods.hyper,
                 },
             });
         }
@@ -77,6 +86,10 @@ test "libvaxisMatcher preserves native text and shifted codepoint matching" {
     try testing.expect(libvaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } }).matches(try KeyPress.parse(":")));
     try testing.expect(libvaxisMatcher(Key{ .codepoint = 'v', .shifted_codepoint = 'V', .mods = .{ .shift = true } }).matches(try KeyPress.parse("V")));
     try testing.expect(!libvaxisMatcher(Key{ .codepoint = 'v' }).matches(try KeyPress.parse("Shift+v")));
+    // Some layouts produce the same non-letter text with Shift, which must remain distinct.
+    const digit = libvaxisMatcher(Key{ .codepoint = '1', .text = "1", .mods = .{ .shift = true } });
+    try testing.expect(!digit.matches(try KeyPress.parse("1")));
+    try testing.expect(digit.matches(try KeyPress.parse("Shift+1")));
 }
 
 test "libvaxisMatcher matches ASCII Shift aliases without text" {

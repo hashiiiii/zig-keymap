@@ -11,7 +11,7 @@
 //! const json =
 //!     \\{"list": {"quit": ["Cmd+q"], "top": ["g g"]}}
 //! ;
-//! var bindings = switch (try Bindings.load(allocator, &.{}, json)) {
+//! var bindings = switch (try Bindings.load(allocator, json)) {
 //!     .bindings => |value| value,
 //!     .invalid => |value| {
 //!         var diagnostic = value;

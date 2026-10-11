@@ -30,6 +30,9 @@ app.root_module.addImport("keymap", keymap.module("keymap"));
 
 This example reads keyboard input with [libvaxis](https://github.com/rockorager/libvaxis) and prints a row counter.
 
+Pass only the contexts enabled for the current input to `receive`, in priority order.  
+Bindings in omitted contexts are inactive.
+
 ```zig
 const std = @import("std");
 const keymap = @import("keymap");
@@ -39,26 +42,24 @@ const Context = enum { global, list };
 const Action = enum { quit, down, up, top };
 const Bindings = keymap.Bindings(Context, Action);
 const Event = union(enum) { key_press: vaxis.Key };
-const defaults: []const Bindings.Default = &.{
-    .{ .context = .global, .action = .quit, .keys = &.{ "q", "Cmd+q" } },
-    .{ .context = .list, .action = .down, .keys = &.{ "Down", "j" } },
-    .{ .context = .list, .action = .top, .keys = &.{"g g"} },
-};
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
-    const json = try std.Io.Dir.cwd().readFileAlloc(io, "keymap.json", allocator, .unlimited);
-    defer allocator.free(json);
+    const json: ?[]u8 = std.Io.Dir.cwd().readFileAlloc(io, "keymap.json", allocator, .unlimited) catch |err| switch (err) {
+        error.FileNotFound => null,
+        else => return err,
+    };
+    defer if (json) |text| allocator.free(text);
 
-    var bindings = switch (try Bindings.load(allocator, defaults, json)) {
+    var bindings = switch (try Bindings.load(allocator, json orelse @embedFile("keymap.json"))) {
         .bindings => |value| value,
         .invalid => |value| {
             var diagnostic = value;
             defer diagnostic.deinit();
             std.debug.print("{s}\n", .{diagnostic.message});
-            if (diagnostic.line) |line| {
-                std.debug.print("At {d}:{d}\n", .{ line, diagnostic.column.? });
+            if (diagnostic.position) |position| {
+                std.debug.print("At {d}:{d}\n", .{ position.line, position.column });
             }
             return error.InvalidKeymap;
         },
@@ -75,9 +76,10 @@ pub fn main(init: std.process.Init) !void {
     defer loop.stop();
 
     var row: usize = 0;
+    const active_contexts: []const Context = &.{ .list, .global };
     while (true) {
         const event = try loop.nextEvent();
-        switch (bindings.receive(&.{ .global, .list }, keymap.libvaxisMatcher(event.key_press))) {
+        switch (bindings.receive(active_contexts, keymap.libvaxisMatcher(event.key_press))) {
             .action => |action| switch (action) {
                 .quit => return,
                 .down => row +|= 1,
@@ -91,35 +93,55 @@ pub fn main(init: std.process.Init) !void {
 }
 ```
 
-Save `keymap.json`:
+Keep the application's initial bindings in `keymap.json` beside the Zig source:
 
 ```json
 {
-  "global": { "quit": ["Ctrl+q"] },
-  "list": { "down": ["Ctrl+n"], "up": ["Ctrl+p"] }
+  "global": { "quit": ["q", "Cmd+q", "Ctrl+q"] },
+  "list": {
+    "down": ["Down", "j", "Ctrl+n"],
+    "up": ["Up", "k", "Ctrl+p"],
+    "top": ["g g"]
+  }
 }
 ```
 
-Arrays replace an action's default keys. `[]` disables it. Omitted actions keep their defaults, including `top` above.  
-JSON accepts every pair from the Context and Action enums, including `up` above.  
-Pass `&.{}` as `defaults` to assign all keys in JSON.
+The example embeds this JSON and reads an editable copy from the working directory when present.  
+The loaded JSON defines every binding. Empty arrays and omitted actions leave keys unbound.  
+Context and action names must belong to the application's enums.
 
 | Method | Purpose |
 | --- | --- |
-| `load(allocator, defaults, json)` | Return `.bindings` or `.invalid`; `null` keeps defaults. |
-| `receive(contexts, key)` | Return `.none`, `.pending`, or `.action: Action`. |
+| `load(allocator, json)` | Load JSON and return `.bindings` or `.invalid`. |
+| `receive(active_contexts, key)` | Match input in the enabled contexts and return `.none`, `.pending`, or `.action: Action`. |
 | `cancel()` | Clear pending keys when focus changes without input. |
 | `deinit()` | Free the configuration and input state. |
 
+For an application with a dialog, select contexts from the current view:
+
+```zig
+const Context = enum { global, list, dialog };
+
+const active_contexts: []const Context = if (dialog_open)
+    &.{ .dialog, .global }
+else
+    &.{ .list, .global };
+
+const result = bindings.receive(active_contexts, keymap.libvaxisMatcher(event.key_press));
+```
+
+While the dialog is open, omitting `list` prevents its bindings from moving the background selection.  
+Earlier active contexts take priority, followed by JSON declaration order.  
+`global` is an ordinary context. Include it explicitly wherever the application's common bindings should be active.
+
 An invalid configuration returns a `Diagnostic` with a `kind` and an owned `message`.  
-Messages identify affected names and key expressions; JSON syntax errors also include `line` and `column`, starting at 1.  
+Messages identify affected names and key expressions; JSON syntax errors also include `position` with `line` and `column`, starting at 1.  
 Call `deinit()` on the selected payload. Only allocation failures return `error.OutOfMemory`.
 
 Pass a `KeyPress` directly, or use `libvaxisMatcher` for native text and Shift matching.  
 Other backends can pass a type with `matches(KeyPress) bool`.  
 Create one `Bindings` instance per input stream.
 
-Active-context order sets priority, followed by default declaration order and then new pairs in JSON order.  
 Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.  
 A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.  
 Sequences have no timeout; call `cancel()` when focus changes without input.
@@ -139,8 +161,11 @@ Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive 
 | Keypad digits | `Keypad0`–`Keypad9` |
 | Keypad operations | `KeypadDecimal`, `KeypadDivide`, `KeypadMultiply`, `KeypadSubtract`, `KeypadAdd`, `KeypadEnter`, `KeypadEqual`, `KeypadSeparator` |
 | Keypad navigation | `KeypadLeft`, `KeypadRight`, `KeypadUp`, `KeypadDown`, `KeypadPageUp`, `KeypadPageDown`, `KeypadHome`, `KeypadEnd`, `KeypadInsert`, `KeypadDelete`, `KeypadBegin` |
+| Media | `MediaPlay`, `MediaPause`, `MediaPlayPause`, `MediaReverse`, `MediaStop`, `MediaFastForward`, `MediaRewind`, `MediaTrackNext`, `MediaTrackPrevious`, `MediaRecord` |
+| Volume | `LowerVolume`, `RaiseVolume`, `MuteVolume` |
 
-Keypad names remain distinct from main-keyboard bindings when the backend reports dedicated keypad codepoints.
+Keypad names remain distinct from main-keyboard bindings when the backend reports keypad identity.  
+`libvaxisMatcher` also reads keypad identity from `base_layout_codepoint` on Windows.
 
 | Modifier | Accepted names |
 | --- | --- |
