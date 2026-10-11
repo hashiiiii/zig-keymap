@@ -131,24 +131,7 @@ else
 const result = bindings.receive(active_contexts, keymap.libvaxisMatcher(event.key_press));
 ```
 
-While the dialog is open, omitting `list` prevents its bindings from moving the background selection.  
-Earlier active contexts take priority, followed by JSON declaration order.  
-`global` is an ordinary context. Include it explicitly wherever the application's common bindings should be active.
-
-An invalid configuration returns a `Diagnostic` with a `kind` and an owned `message`.  
-Messages identify affected names and key expressions; JSON syntax errors also include `position` with `line` and `column`, starting at 1.  
-Call `deinit()` on the selected payload. Only allocation failures return `error.OutOfMemory`.
-
-Pass a `KeyPress` directly, or use `libvaxisMatcher` for native text and Shift matching.  
-Other backends can pass a type with `matches(KeyPress) bool`.  
-Create one `Bindings` instance per input stream.
-
-Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.  
-Normalization covers ASCII Shift, named control characters, and modifier aliases.  
-Native text and base-layout keys can create additional overlaps, such as `:` and `Shift+;`.  
-These follow context priority and JSON declaration order.  
-A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.  
-Sequences have no timeout; call `cancel()` when focus changes without input.
+While the dialog is open, omitting `list` prevents its bindings from moving the background selection.
 
 ## Keys
 
