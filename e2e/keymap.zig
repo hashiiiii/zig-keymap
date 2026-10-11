@@ -31,19 +31,20 @@ test "extended named keys select actions and distinguish keypad input" {
     defer bindings.deinit();
 
     var parser: vaxis.Parser = .{};
-    const cases = [_]struct { []const u8, Action }{
-        .{ "\x1b[57376u", .function },
-        .{ "\x1b[57398u", .function },
-        .{ "\x1b[57361u", .capture },
-        .{ "\x1b[57400;129;49u", .keypad },
-        .{ "\x1b[57414;129;13u", .keypad },
-        .{ "\x1b[57430u", .play },
-        .{ "\x1b[57439;5u", .volume },
-    };
-    for (cases) |case| {
-        const event = (try parser.parse(case[0], null)).event.?;
-        try testing.expectEqual(case[1], bindings.receive(&.{.global}, keymap.libvaxisMatcher(event.key_press)).action);
-    }
+    const f13 = (try parser.parse("\x1b[57376u", null)).event.?;
+    try testing.expectEqual(Action.function, bindings.receive(&.{.global}, keymap.libvaxisMatcher(f13.key_press)).action);
+    const f35 = (try parser.parse("\x1b[57398u", null)).event.?;
+    try testing.expectEqual(Action.function, bindings.receive(&.{.global}, keymap.libvaxisMatcher(f35.key_press)).action);
+    const print_screen = (try parser.parse("\x1b[57361u", null)).event.?;
+    try testing.expectEqual(Action.capture, bindings.receive(&.{.global}, keymap.libvaxisMatcher(print_screen.key_press)).action);
+    const keypad_digit = (try parser.parse("\x1b[57400;129;49u", null)).event.?;
+    try testing.expectEqual(Action.keypad, bindings.receive(&.{.global}, keymap.libvaxisMatcher(keypad_digit.key_press)).action);
+    const keypad_enter = (try parser.parse("\x1b[57414;129;13u", null)).event.?;
+    try testing.expectEqual(Action.keypad, bindings.receive(&.{.global}, keymap.libvaxisMatcher(keypad_enter.key_press)).action);
+    const media = (try parser.parse("\x1b[57430u", null)).event.?;
+    try testing.expectEqual(Action.play, bindings.receive(&.{.global}, keymap.libvaxisMatcher(media.key_press)).action);
+    const volume = (try parser.parse("\x1b[57439;5u", null)).event.?;
+    try testing.expectEqual(Action.volume, bindings.receive(&.{.global}, keymap.libvaxisMatcher(volume.key_press)).action);
 
     // Windows console events retain the keypad codepoint separately from the produced character.
     try testing.expectEqual(Action.keypad, bindings.receive(&.{.global}, keymap.libvaxisMatcher(Key{
@@ -214,7 +215,8 @@ test "JSON sequences accept modifier aliases and Unicode" {
     )).bindings;
     defer bindings.deinit();
 
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'あ', .mods = .{ .super = true } })) == .pending);
+    // Logical Unicode keys must remain usable even when a backend also reports a physical base key.
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'あ', .base_layout_codepoint = 'a', .mods = .{ .super = true } })) == .pending);
     try testing.expectEqual(Action.next, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'n', .mods = .{ .alt = true } })).action);
 }
 
@@ -249,7 +251,7 @@ test "ASCII Shift bindings ignore optional native text" {
     const Action = enum { plain, shifted };
     const Map = keymap.Bindings(enum { list }, Action);
     var bindings = (try Map.load(testing.allocator,
-        \\{"list": {"plain": ["Ctrl+j"], "shifted": ["Ctrl+J"]}}
+        \\{"list": {"plain": ["Ctrl+j", "Ctrl+i"], "shifted": ["Ctrl+J", "Ctrl+Shift+i"]}}
     )).bindings;
     defer bindings.deinit();
 
@@ -258,14 +260,86 @@ test "ASCII Shift bindings ignore optional native text" {
     try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(without_text.key_press)).action);
     const with_text = (try parser.parse("\x1b[106:74;70;106u", null)).event.?;
     try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(with_text.key_press)).action);
+    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
+        .codepoint = 'J',
+        .mods = .{ .ctrl = true },
+    })).action);
+    try testing.expectEqual(Action.plain, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
+        .codepoint = 'j',
+        .mods = .{ .ctrl = true },
+    })).action);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
+        .codepoint = 'j',
+        .mods = .{ .shift = true },
+    })) == .none);
+
+    // Alternate layouts can produce an ASCII letter from a non-ASCII key without a text field.
+    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
+        .codepoint = 'ı',
+        .shifted_codepoint = 'I',
+        .mods = .{ .ctrl = true, .shift = true },
+    })).action);
 }
 
-test "native text requires Shift before selecting shifted bindings" {
-    // Text fields must not let an unshifted event invoke a shifted action.
-    const Action = enum { shifted_digit, digit, shifted_space, space };
+test "native shifted symbols preserve shortcut and text matching" {
+    // Windows reports the produced symbol separately from the key used by the shortcut.
+    const Action = enum { shortcut, symbol, plain };
+    const Map = keymap.Bindings(enum { key, text }, Action);
+    var bindings = (try Map.load(testing.allocator,
+        \\{"key": {"shortcut": ["Ctrl+Shift+1"]}, "text": {"symbol": ["Ctrl+!"], "plain": ["Ctrl+1"]}}
+    )).bindings;
+    defer bindings.deinit();
+    const windows = keymap.libvaxisMatcher(Key{
+        .codepoint = '!',
+        .base_layout_codepoint = '1',
+        .text = "!",
+        .mods = .{ .ctrl = true, .shift = true },
+    });
+
+    try testing.expectEqual(Map.Result{ .action = .shortcut }, bindings.receive(&.{ .key, .text }, windows));
+    try testing.expectEqual(Map.Result{ .action = .symbol }, bindings.receive(&.{ .text, .key }, windows));
+    try testing.expectEqual(Action.shortcut, bindings.receive(&.{ .key, .text }, keymap.libvaxisMatcher(Key{
+        .codepoint = '1',
+        .shifted_codepoint = '!',
+        .text = "!",
+        .mods = .{ .ctrl = true, .shift = true },
+    })).action);
+}
+
+test "Caps Lock preserves ASCII binding selection across native encodings" {
+    // Lock state must not be mistaken for holding Shift on a backend that reports uppercase codepoints.
+    const Action = enum { plain, shifted };
     const Map = keymap.Bindings(enum { list }, Action);
     var bindings = (try Map.load(testing.allocator,
-        \\{"list": {"shifted_digit": ["Ctrl+Shift+1"], "digit": ["Ctrl+1"], "space": ["Space"], "shifted_space": ["Shift+Space"]}}
+        \\{"list": {"plain": ["j"], "shifted": ["J"]}}
+    )).bindings;
+    defer bindings.deinit();
+
+    try testing.expectEqual(Action.plain, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
+        .codepoint = 'j',
+        .text = "J",
+        .mods = .{ .caps_lock = true },
+    })).action);
+    try testing.expectEqual(Map.Result{ .action = .plain }, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
+        .codepoint = 'J',
+        .base_layout_codepoint = 'j',
+        .text = "J",
+        .mods = .{ .caps_lock = true },
+    })));
+    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
+        .codepoint = 'j',
+        .base_layout_codepoint = 'j',
+        .text = "j",
+        .mods = .{ .shift = true, .caps_lock = true },
+    })).action);
+}
+
+test "native text preserves modifiers on unchanged keys" {
+    // Text matching must not consume Shift when it leaves a digit or named key unchanged.
+    const Action = enum { digit, shifted_space, space };
+    const Map = keymap.Bindings(enum { list }, Action);
+    var bindings = (try Map.load(testing.allocator,
+        \\{"list": {"digit": ["Ctrl+1"], "space": ["Space"], "shifted_space": ["Shift+Space"]}}
     )).bindings;
     defer bindings.deinit();
 
@@ -274,11 +348,11 @@ test "native text requires Shift before selecting shifted bindings" {
         .text = "1",
         .mods = .{ .ctrl = true },
     })).action);
-    try testing.expectEqual(Action.shifted_digit, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
         .codepoint = '1',
-        .text = "!",
+        .text = "1",
         .mods = .{ .ctrl = true, .shift = true },
-    })).action);
+    })) == .none);
     try testing.expectEqual(Action.space, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{
         .codepoint = Key.space,
         .text = " ",

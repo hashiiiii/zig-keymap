@@ -215,6 +215,7 @@ test "parse preserves character case and accepts case-insensitive names" {
     try testing.expectEqual(KeyPress{ .key = .{ .character = 'あ' }, .modifiers = .{ .ctrl = true } }, try KeyPress.parse("cTrL+あ"));
     try testing.expectEqual(KeyPress{ .key = .{ .character = 'J' } }, try KeyPress.parse("J"));
     try testing.expectEqual(KeyPress{ .key = .{ .named = .page_down } }, try KeyPress.parse("pagedown"));
+    try testing.expectEqual(KeyPress{ .key = .{ .named = .kp_page_down } }, try KeyPress.parse("kEyPaDpAgEdOwN"));
     try testing.expectEqual(KeyPress{
         .key = .{ .named = .enter },
         .modifiers = .{ .ctrl = true, .alt = true, .shift = true, .super = true, .meta = true, .hyper = true },
@@ -233,22 +234,6 @@ test "parse accepts modifier aliases without OS selection" {
     try testing.expectEqual(super, try KeyPress.parse("wIn+k"));
     try testing.expectEqual(super, try KeyPress.parse("WiNdOwS+k"));
     try testing.expectEqual(ctrl, try KeyPress.parse("cOnTrOl+k"));
-}
-
-test "parse accepts extended named keys" {
-    // Extended keys must be configurable, including names with multiple words.
-    try testing.expectEqualStrings("f13", @tagName((try KeyPress.parse("F13")).key.named));
-    try testing.expectEqualStrings("f35", @tagName((try KeyPress.parse("f35")).key.named));
-    try testing.expectEqualStrings("print_screen", @tagName((try KeyPress.parse("PrintScreen")).key.named));
-    try testing.expectEqualStrings("caps_lock", @tagName((try KeyPress.parse("CapsLock")).key.named));
-    try testing.expectEqualStrings("kp_0", @tagName((try KeyPress.parse("Keypad0")).key.named));
-    try testing.expectEqualStrings("kp_9", @tagName((try KeyPress.parse("Keypad9")).key.named));
-    try testing.expectEqualStrings("kp_page_down", @tagName((try KeyPress.parse("kEyPaDpAgEdOwN")).key.named));
-    try testing.expectEqualStrings("media_play_pause", @tagName((try KeyPress.parse("MediaPlayPause")).key.named));
-    try testing.expectEqualStrings("raise_volume", @tagName((try KeyPress.parse("RaiseVolume")).key.named));
-    try testing.expectEqualStrings("mute_volume", @tagName((try KeyPress.parse("MuteVolume")).key.named));
-    try testing.expectError(error.InvalidKey, KeyPress.parse("F36"));
-    try testing.expectError(error.InvalidKey, KeyPress.parse("Keypad10"));
 }
 
 test "parse rejects repeated modifiers written as platform aliases" {
@@ -273,6 +258,8 @@ test "parse rejects malformed key expressions" {
     try testing.expectError(error.InvalidKey, KeyPress.parse("word"));
     try testing.expectError(error.InvalidKey, KeyPress.parse("\xff"));
     try testing.expectError(error.InvalidKey, KeyPress.parse("a\xcc\x81"));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("F36"));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("Keypad10"));
 }
 
 test "matches detects ASCII Shift aliases without merging other modifiers" {

@@ -156,20 +156,20 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
         /// A mismatch clears pending keys and retries the event as a new binding.
         /// Pending keys in inactive contexts are discarded. Sequences have no timeout.
         pub fn receive(self: *Self, active_contexts: []const Context, matcher: anytype) Result {
-            var was_pending = false;
+            var continuing = false;
             for (self.bindings) |*binding| {
                 if (std.mem.indexOfScalar(Context, active_contexts, binding.context) == null) {
                     binding.next_step = null;
                 }
-                if (binding.next_step != null) was_pending = true;
+                if (binding.next_step != null) continuing = true;
             }
-            if (was_pending) {
+            while (true) {
                 var pending = false;
                 for (active_contexts, 0..) |context, context_index| {
                     if (std.mem.indexOfScalar(Context, active_contexts[0..context_index], context) != null) continue;
                     for (self.bindings) |*binding| {
                         if (binding.context != context) continue;
-                        const next = binding.next_step orelse continue;
+                        const next = if (continuing) binding.next_step orelse continue else 0;
                         if (!matcher.matches(binding.keys[next])) {
                             binding.next_step = null;
                             continue;
@@ -186,24 +186,10 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                     }
                 }
                 if (pending) return .pending;
-                self.cancel();
+                if (!continuing) return .none;
+                // A failed sequence must let this same event start a different binding.
+                continuing = false;
             }
-            var pending = false;
-            for (active_contexts, 0..) |context, context_index| {
-                if (std.mem.indexOfScalar(Context, active_contexts[0..context_index], context) != null) continue;
-                for (self.bindings) |*binding| {
-                    if (binding.context != context or !matcher.matches(binding.keys[0])) continue;
-                    if (binding.keys.len == 1) {
-                        if (pending) continue;
-                        const action = binding.action;
-                        self.cancel();
-                        return .{ .action = action };
-                    }
-                    binding.next_step = 1;
-                    pending = true;
-                }
-            }
-            return if (pending) .pending else .none;
         }
 
         /// Clears pending keys. Call when focus changes without a key event.
