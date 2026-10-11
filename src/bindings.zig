@@ -155,6 +155,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
         /// Earlier pending bindings take priority.
         /// A mismatch clears pending keys and retries the event as a new binding.
         /// Pending keys in inactive contexts are discarded. Sequences have no timeout.
+        /// An optional isIgnored() bool method can return true to preserve active sequences and return .none.
         pub fn receive(self: *Self, active_contexts: []const Context, matcher: anytype) Result {
             var continuing = false;
             for (self.bindings) |*binding| {
@@ -162,6 +163,9 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                     binding.next_step = null;
                 }
                 if (binding.next_step != null) continuing = true;
+            }
+            if (std.meta.hasMethod(@TypeOf(matcher), "isIgnored")) {
+                if (matcher.isIgnored()) return .none;
             }
             while (true) {
                 var pending = false;

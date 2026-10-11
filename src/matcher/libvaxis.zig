@@ -5,6 +5,7 @@ const KeyPress = @import("../key.zig").KeyPress;
 /// Caps Lock does not imply Shift.
 /// Pass the key_press payload from loop.nextEvent().
 /// Uses base_layout_codepoint for shortcuts and keypad identity.
+/// Modifier-only events are ignored so they cannot cancel pending sequences.
 pub fn libvaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {
     return .{ .key = key };
 }
@@ -12,6 +13,10 @@ pub fn libvaxisMatcher(key: anytype) Matcher(@TypeOf(key)) {
 fn Matcher(comptime NativeKey: type) type {
     return struct {
         key: NativeKey,
+
+        pub fn isIgnored(self: @This()) bool {
+            return self.key.isModifier();
+        }
 
         pub fn matches(self: @This(), spec: KeyPress) bool {
             var native = self.key;
