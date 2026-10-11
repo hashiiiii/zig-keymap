@@ -107,6 +107,8 @@ test "modifier-only events preserve pending sequences" {
     const ctrl_n = (try parser.parse("\x1b[110;5u", null)).event.?;
     const cmd = (try parser.parse("\x1b[57450;9u", null)).event.?;
     const cmd_q = (try parser.parse("\x1b[113;9u", null)).event.?;
+    const level3 = (try parser.parse("\x1b[57453u", null)).event.?;
+    const level5 = (try parser.parse("\x1b[57454u", null)).event.?;
 
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(ctrl.key_press)) == .none);
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(g.key_press)) == .pending);
@@ -116,6 +118,15 @@ test "modifier-only events preserve pending sequences" {
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(g.key_press)) == .pending);
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(cmd.key_press)) == .none);
     try testing.expectEqual(Map.Result{ .action = .quit }, bindings.receive(&.{.list}, keymap.libvaxisMatcher(cmd_q.key_press)));
+
+    // libvaxis omits ISO level Shift keys from its modifier classification.
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(g.key_press)) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(level3.key_press)) == .none);
+    try testing.expectEqual(Map.Result{ .action = .next }, bindings.receive(&.{.list}, keymap.libvaxisMatcher(ctrl_n.key_press)));
+
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(g.key_press)) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(level5.key_press)) == .none);
+    try testing.expectEqual(Map.Result{ .action = .next }, bindings.receive(&.{.list}, keymap.libvaxisMatcher(ctrl_n.key_press)));
 
     // Ignoring input must still discard a prefix whose context became inactive.
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(g.key_press)) == .pending);
