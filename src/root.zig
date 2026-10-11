@@ -1,6 +1,6 @@
 //! Map JSON key bindings to typed actions.
 //!
-//! Load defaults, receive one key event, and handle the result:
+//! Load JSON assignments, receive one key event, and handle the result:
 //!
 //! ```zig
 //! const keymap = @import("keymap");
@@ -8,10 +8,18 @@
 //! const Action = enum { quit, top };
 //! const Bindings = keymap.Bindings(Context, Action);
 //!
-//! var bindings = try Bindings.load(allocator, &.{
-//!     .{ .context = .list, .action = .quit, .keys = &.{"Cmd+q"} },
-//!     .{ .context = .list, .action = .top, .keys = &.{"g g"} },
-//! }, json);
+//! const json =
+//!     \\{"list": {"quit": ["Cmd+q"], "top": ["g g"]}}
+//! ;
+//! var bindings = switch (try Bindings.load(allocator, &.{}, json)) {
+//!     .bindings => |value| value,
+//!     .invalid => |value| {
+//!         var diagnostic = value;
+//!         defer diagnostic.deinit();
+//!         showConfigError(diagnostic.message);
+//!         return;
+//!     },
+//! };
 //! defer bindings.deinit();
 //!
 //! const key: keymap.KeyPress = .{
@@ -32,6 +40,7 @@ pub const NamedKey = key.NamedKey;
 pub const Modifiers = key.Modifiers;
 pub const Key = key.Key;
 pub const KeyPress = key.KeyPress;
+pub const Diagnostic = @import("bindings.zig").Diagnostic;
 pub const Bindings = @import("bindings.zig").Bindings;
 pub const libvaxisMatcher = @import("matcher/libvaxis.zig").libvaxisMatcher;
 

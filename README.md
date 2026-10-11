@@ -36,7 +36,7 @@ const keymap = @import("keymap");
 const vaxis = @import("vaxis");
 
 const Context = enum { global, list };
-const Action = enum { quit, down, top };
+const Action = enum { quit, down, up, top };
 const Bindings = keymap.Bindings(Context, Action);
 const Event = union(enum) { key_press: vaxis.Key };
 const defaults: []const Bindings.Default = &.{
@@ -51,7 +51,18 @@ pub fn main(init: std.process.Init) !void {
     const json = try std.Io.Dir.cwd().readFileAlloc(io, "keymap.json", allocator, .unlimited);
     defer allocator.free(json);
 
-    var bindings = try Bindings.load(allocator, defaults, json);
+    var bindings = switch (try Bindings.load(allocator, defaults, json)) {
+        .bindings => |value| value,
+        .invalid => |value| {
+            var diagnostic = value;
+            defer diagnostic.deinit();
+            std.debug.print("{s}\n", .{diagnostic.message});
+            if (diagnostic.line) |line| {
+                std.debug.print("At {d}:{d}\n", .{ line, diagnostic.column.? });
+            }
+            return error.InvalidKeymap;
+        },
+    };
     defer bindings.deinit();
 
     var tty_buffer: [1024]u8 = undefined;
@@ -70,6 +81,7 @@ pub fn main(init: std.process.Init) !void {
             .action => |action| switch (action) {
                 .quit => return,
                 .down => row +|= 1,
+                .up => row -|= 1,
                 .top => row = 0,
             },
             .pending, .none => continue,
@@ -84,33 +96,51 @@ Save `keymap.json`:
 ```json
 {
   "global": { "quit": ["Ctrl+q"] },
-  "list": { "down": ["Ctrl+n"] }
+  "list": { "down": ["Ctrl+n"], "up": ["Ctrl+p"] }
 }
 ```
 
 Arrays replace an action's default keys. `[]` disables it. Omitted actions keep their defaults, including `top` above.  
-Only pairs listed in `defaults` can be configured. Use `.keys = &.{}` to declare an action without default keys.
+JSON accepts every pair from the Context and Action enums, including `up` above.  
+Pass `&.{}` as `defaults` to assign all keys in JSON.
 
 | Method | Purpose |
 | --- | --- |
-| `load(allocator, defaults, json)` | Load JSON overrides; `null` keeps defaults. |
+| `load(allocator, defaults, json)` | Return `.bindings` or `.invalid`; `null` keeps defaults. |
 | `receive(contexts, key)` | Return `.none`, `.pending`, or `.action: Action`. |
 | `cancel()` | Clear pending keys when focus changes without input. |
 | `deinit()` | Free the configuration and input state. |
+
+An invalid configuration returns a `Diagnostic` with a `kind` and an owned `message`.  
+Messages identify affected names and key expressions; JSON syntax errors also include `line` and `column`, starting at 1.  
+Call `deinit()` on the selected payload. Only allocation failures return `error.OutOfMemory`.
 
 Pass a `KeyPress` directly, or use `libvaxisMatcher` for native text and Shift matching.  
 Other backends can pass a type with `matches(KeyPress) bool`.  
 Create one `Bindings` instance per input stream.
 
-Active-context order sets priority, followed by default declaration order.  
+Active-context order sets priority, followed by default declaration order and then new pairs in JSON order.  
 Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.  
 A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.  
 Sequences have no timeout; call `cancel()` when focus changes without input.
 
 ## Keys
 
-Characters keep their case. Named keys and modifier names ignore case.  
+Characters keep their case; ASCII uppercase matches the lowercase letter with Shift, so `J` equals `Shift+j`.  
+Named keys and modifier names ignore case.  
 Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive presses.  
+
+| Named keys | Accepted names |
+| --- | --- |
+| Navigation | `Up`, `Down`, `Left`, `Right`, `Home`, `End`, `PageUp`, `PageDown`, `Insert`, `Delete` |
+| Editing | `Enter`, `Escape`, `Tab`, `Backspace`, `Space` |
+| Function | `F1`–`F35` |
+| System | `CapsLock`, `ScrollLock`, `NumLock`, `PrintScreen`, `Pause`, `Menu` |
+| Keypad digits | `Keypad0`–`Keypad9` |
+| Keypad operations | `KeypadDecimal`, `KeypadDivide`, `KeypadMultiply`, `KeypadSubtract`, `KeypadAdd`, `KeypadEnter`, `KeypadEqual`, `KeypadSeparator` |
+| Keypad navigation | `KeypadLeft`, `KeypadRight`, `KeypadUp`, `KeypadDown`, `KeypadPageUp`, `KeypadPageDown`, `KeypadHome`, `KeypadEnd`, `KeypadInsert`, `KeypadDelete`, `KeypadBegin` |
+
+Keypad names remain distinct from main-keyboard bindings when the backend reports dedicated keypad codepoints.
 
 | Modifier | Accepted names |
 | --- | --- |
