@@ -30,6 +30,9 @@ app.root_module.addImport("keymap", keymap.module("keymap"));
 
 This example reads keyboard input with [libvaxis](https://github.com/rockorager/libvaxis) and prints a row counter.
 
+Pass only the contexts enabled for the current input to `receive`, in priority order.  
+Bindings in omitted contexts are inactive.
+
 ```zig
 const std = @import("std");
 const keymap = @import("keymap");
@@ -73,9 +76,10 @@ pub fn main(init: std.process.Init) !void {
     defer loop.stop();
 
     var row: usize = 0;
+    const active_contexts: []const Context = &.{ .list, .global };
     while (true) {
         const event = try loop.nextEvent();
-        switch (bindings.receive(&.{ .global, .list }, keymap.libvaxisMatcher(event.key_press))) {
+        switch (bindings.receive(active_contexts, keymap.libvaxisMatcher(event.key_press))) {
             .action => |action| switch (action) {
                 .quit => return,
                 .down => row +|= 1,
@@ -109,9 +113,26 @@ Context and action names must belong to the application's enums.
 | Method | Purpose |
 | --- | --- |
 | `load(allocator, json)` | Load JSON and return `.bindings` or `.invalid`. |
-| `receive(contexts, key)` | Return `.none`, `.pending`, or `.action: Action`. |
+| `receive(active_contexts, key)` | Match input in the enabled contexts and return `.none`, `.pending`, or `.action: Action`. |
 | `cancel()` | Clear pending keys when focus changes without input. |
 | `deinit()` | Free the configuration and input state. |
+
+For an application with a dialog, select contexts from the current view:
+
+```zig
+const Context = enum { global, list, dialog };
+
+const active_contexts: []const Context = if (dialog_open)
+    &.{ .dialog, .global }
+else
+    &.{ .list, .global };
+
+const result = bindings.receive(active_contexts, keymap.libvaxisMatcher(event.key_press));
+```
+
+While the dialog is open, omitting `list` prevents its bindings from moving the background selection.  
+Earlier active contexts take priority, followed by JSON declaration order.  
+`global` is an ordinary context. Include it explicitly wherever the application's common bindings should be active.
 
 An invalid configuration returns a `Diagnostic` with a `kind` and an owned `message`.  
 Messages identify affected names and key expressions; JSON syntax errors also include `position` with `line` and `column`, starting at 1.  
@@ -121,7 +142,6 @@ Pass a `KeyPress` directly, or use `libvaxisMatcher` for native text and Shift m
 Other backends can pass a type with `matches(KeyPress) bool`.  
 Create one `Bindings` instance per input stream.
 
-Active-context order sets priority, followed by JSON declaration order.  
 Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.  
 A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.  
 Sequences have no timeout; call `cancel()` when focus changes without input.

@@ -152,6 +152,8 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
         }
 
         /// Matches a KeyPress or a matcher whose matches(KeyPress) method returns bool.
+        /// Pass only the contexts enabled for the current input, in priority order.
+        /// Bindings in omitted contexts are inactive; include shared contexts explicitly.
         /// Earlier active contexts win, then bindings in JSON declaration order.
         /// Earlier pending bindings take priority.
         /// A mismatch clears pending keys and retries the event as a new binding.
