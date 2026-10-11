@@ -10,15 +10,18 @@ pub const Diagnostic = struct {
         unknown_action,
         invalid_type,
         invalid_key,
-        duplicate_default,
         collision,
+    };
+
+    pub const Position = struct {
+        line: u64,
+        column: u64,
     };
 
     kind: Kind,
     message: []const u8,
     /// JSON syntax position, starting at 1; null for other configuration errors.
-    line: ?u64 = null,
-    column: ?u64 = null,
+    position: ?Position = null,
     allocator: std.mem.Allocator,
 
     /// Frees the diagnostic message.
@@ -37,14 +40,6 @@ pub const Diagnostic = struct {
 pub fn Bindings(comptime Context: type, comptime Action: type) type {
     return struct {
         const Self = @This();
-
-        /// Default keys for one context and action.
-        pub const Default = struct {
-            context: Context,
-            action: Action,
-            /// Aliases such as Down, Ctrl+n, or g g. Use Space for the space key.
-            keys: []const []const u8,
-        };
 
         /// Outcome of one input event.
         pub const Result = union(enum) {
@@ -75,12 +70,11 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
             expression: []const u8,
         };
 
-        /// Loads defaults and JSON assignments; null keeps all defaults.
-        /// Arrays replace aliases, [] disables an action, and omitted actions keep defaults.
-        /// JSON accepts any Context and Action enum pair, including pairs without defaults.
+        /// Loads all bindings from JSON using Context and Action enum names.
+        /// Empty arrays and omitted actions leave keys unbound.
         /// Invalid configuration returns .invalid; allocation failures return error.OutOfMemory.
-        /// Both payloads own their data; callers may free defaults and text after loading.
-        pub fn load(allocator: std.mem.Allocator, defaults: []const Default, text: ?[]const u8) std.mem.Allocator.Error!LoadResult {
+        /// Both payloads own their data; callers may free text after loading.
+        pub fn load(allocator: std.mem.Allocator, text: []const u8) std.mem.Allocator.Error!LoadResult {
             var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
             defer if (!retained) arena.deinit();
@@ -88,72 +82,35 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
             var parse_arena = std.heap.ArenaAllocator.init(allocator);
             defer parse_arena.deinit();
             const temporary = parse_arena.allocator();
-            var root: ?std.json.ObjectMap = null;
-            if (text) |contents| {
-                var scanner = std.json.Scanner.initCompleteInput(temporary, contents);
-                defer scanner.deinit();
-                var position: std.json.Diagnostics = .{};
-                scanner.enableDiagnostics(&position);
-                const value = std.json.parseFromTokenSourceLeaky(std.json.Value, temporary, &scanner, .{}) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => {
-                        var diagnostic = try Diagnostic.init(allocator, .invalid_json, "Invalid JSON: {s}", .{@errorName(err)});
-                        diagnostic.line = position.getLine();
-                        diagnostic.column = position.getColumn();
-                        return .{ .invalid = diagnostic };
-                    },
-                };
-                if (value != .object) return invalid(allocator, .invalid_type, "The JSON root must be an object", .{});
-                root = value.object;
-            }
-            if (root) |object| {
-                for (object.keys(), object.values()) |context_name, context_value| {
-                    if (std.meta.stringToEnum(Context, context_name) == null)
-                        return invalid(allocator, .unknown_context, "Unknown context '{s}'", .{context_name});
-                    if (context_value != .object)
-                        return invalid(allocator, .invalid_type, "Context '{s}' must be an object", .{context_name});
-                    for (context_value.object.keys(), context_value.object.values()) |action_name, value| {
-                        if (std.meta.stringToEnum(Action, action_name) == null)
-                            return invalid(allocator, .unknown_action, "Unknown action '{s}.{s}'", .{ context_name, action_name });
-                        if (value != .array)
-                            return invalid(allocator, .invalid_type, "'{s}.{s}' must be an array of key strings", .{ context_name, action_name });
-                        for (value.array.items, 0..) |item, index| {
-                            if (item != .string)
-                                return invalid(allocator, .invalid_type, "'{s}.{s}[{d}]' must be a key string", .{ context_name, action_name, index });
-                        }
-                    }
-                }
-            }
+            var scanner = std.json.Scanner.initCompleteInput(temporary, text);
+            defer scanner.deinit();
+            var position: std.json.Diagnostics = .{};
+            scanner.enableDiagnostics(&position);
+            const root = std.json.parseFromTokenSourceLeaky(std.json.Value, temporary, &scanner, .{}) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => {
+                    var diagnostic = try Diagnostic.init(allocator, .invalid_json, "Invalid JSON: {s}", .{@errorName(err)});
+                    diagnostic.position = .{ .line = position.getLine(), .column = position.getColumn() };
+                    return .{ .invalid = diagnostic };
+                },
+            };
+            if (root != .object) return invalid(allocator, .invalid_type, "The JSON root must be an object", .{});
             var parsed: std.ArrayList(ParsedBinding) = .empty;
-            for (defaults, 0..) |binding, index| {
-                for (defaults[0..index]) |previous| {
-                    if (previous.context == binding.context and previous.action == binding.action)
-                        return invalid(allocator, .duplicate_default, "Duplicate default '{s}.{s}'", .{ @tagName(binding.context), @tagName(binding.action) });
-                }
-                const override = if (root) |object| blk: {
-                    const context = object.get(@tagName(binding.context)) orelse break :blk null;
-                    break :blk context.object.get(@tagName(binding.action));
-                } else null;
-                const count = if (override) |value| value.array.items.len else binding.keys.len;
-                for (0..count) |key_index| {
-                    const expression = if (override) |value| value.array.items[key_index].string else binding.keys[key_index];
-                    if (try appendBinding(allocator, storage, temporary, &parsed, binding.context, binding.action, expression)) |diagnostic|
-                        return .{ .invalid = diagnostic };
-                }
-            }
-            if (root) |object| {
-                for (object.keys(), object.values()) |context_name, context_value| {
-                    const context = std.meta.stringToEnum(Context, context_name).?;
-                    for (context_value.object.keys(), context_value.object.values()) |action_name, value| {
-                        const action = std.meta.stringToEnum(Action, action_name).?;
-                        for (defaults) |binding| {
-                            if (binding.context == context and binding.action == action) break;
-                        } else {
-                            for (value.array.items) |item| {
-                                if (try appendBinding(allocator, storage, temporary, &parsed, context, action, item.string)) |diagnostic|
-                                    return .{ .invalid = diagnostic };
-                            }
-                        }
+            for (root.object.keys(), root.object.values()) |context_name, context_value| {
+                const context = std.meta.stringToEnum(Context, context_name) orelse
+                    return invalid(allocator, .unknown_context, "Unknown context '{s}'", .{context_name});
+                if (context_value != .object)
+                    return invalid(allocator, .invalid_type, "Context '{s}' must be an object", .{context_name});
+                for (context_value.object.keys(), context_value.object.values()) |action_name, value| {
+                    const action = std.meta.stringToEnum(Action, action_name) orelse
+                        return invalid(allocator, .unknown_action, "Unknown action '{s}.{s}'", .{ context_name, action_name });
+                    if (value != .array)
+                        return invalid(allocator, .invalid_type, "'{s}.{s}' must be an array of key strings", .{ context_name, action_name });
+                    for (value.array.items, 0..) |item, index| {
+                        if (item != .string)
+                            return invalid(allocator, .invalid_type, "'{s}.{s}[{d}]' must be a key string", .{ context_name, action_name, index });
+                        if (try appendBinding(allocator, storage, temporary, &parsed, context, action, item.string)) |diagnostic|
+                            return .{ .invalid = diagnostic };
                     }
                 }
             }
@@ -195,7 +152,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
         }
 
         /// Matches a KeyPress or a matcher whose matches(KeyPress) method returns bool.
-        /// Earlier active contexts win, then defaults and new JSON pairs in declaration order.
+        /// Earlier active contexts win, then bindings in JSON declaration order.
         /// Earlier pending bindings take priority.
         /// A mismatch clears pending keys and retries the event as a new binding.
         /// Pending keys in inactive contexts are discarded. Sequences have no timeout.
@@ -273,14 +230,14 @@ fn overlaps(a: []const KeyPress, b: []const KeyPress) bool {
 test "load identifies unknown context and action names" {
     // Enum typos must identify the name users need to correct.
     const Map = Bindings(enum { list, dialog }, enum { down, cancel });
-    var context = (try Map.load(testing.allocator, &.{},
+    var context = (try Map.load(testing.allocator,
         \\{"unknown": {"down": []}}
     )).invalid;
     defer context.deinit();
     try testing.expectEqual(Diagnostic.Kind.unknown_context, context.kind);
     try testing.expect(std.mem.indexOf(u8, context.message, "unknown") != null);
 
-    var action = (try Map.load(testing.allocator, &.{},
+    var action = (try Map.load(testing.allocator,
         \\{"list": {"unknown": []}}
     )).invalid;
     defer action.deinit();
@@ -291,26 +248,26 @@ test "load identifies unknown context and action names" {
 test "load locates wrong JSON value types" {
     // A type error must identify the configuration level that needs correction.
     const Map = Bindings(enum { list }, enum { down });
-    var root = (try Map.load(testing.allocator, &.{}, "null")).invalid;
+    var root = (try Map.load(testing.allocator, "null")).invalid;
     defer root.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_type, root.kind);
     try testing.expect(std.mem.indexOf(u8, root.message, "root") != null);
 
-    var context = (try Map.load(testing.allocator, &.{},
+    var context = (try Map.load(testing.allocator,
         \\{"list": 1}
     )).invalid;
     defer context.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_type, context.kind);
     try testing.expect(std.mem.indexOf(u8, context.message, "list") != null);
 
-    var action = (try Map.load(testing.allocator, &.{},
+    var action = (try Map.load(testing.allocator,
         \\{"list": {"down": 1}}
     )).invalid;
     defer action.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_type, action.kind);
     try testing.expect(std.mem.indexOf(u8, action.message, "list.down") != null);
 
-    var item = (try Map.load(testing.allocator, &.{},
+    var item = (try Map.load(testing.allocator,
         \\{"list": {"down": ["j", 1]}}
     )).invalid;
     defer item.deinit();
@@ -322,29 +279,27 @@ test "load owns complete invalid key diagnostics" {
     // Diagnostics must survive released inputs and preserve long or escaped expressions.
     const Map = Bindings(enum { list }, enum { down });
     const expression = "Unknown+j" ** 100;
-    var default = (try Map.load(testing.allocator, &.{
-        .{ .context = .list, .action = .down, .keys = &.{expression} },
-    }, null)).invalid;
-    defer default.deinit();
-    try testing.expectEqual(Diagnostic.Kind.invalid_key, default.kind);
-    try testing.expect(std.mem.indexOf(u8, default.message, "list.down") != null);
-    try testing.expect(std.mem.indexOf(u8, default.message, expression) != null);
+    var long = (try Map.load(testing.allocator, "{\"list\": {\"down\": [\"" ++ expression ++ "\"]}}")).invalid;
+    defer long.deinit();
+    try testing.expectEqual(Diagnostic.Kind.invalid_key, long.kind);
+    try testing.expect(std.mem.indexOf(u8, long.message, "list.down") != null);
+    try testing.expect(std.mem.indexOf(u8, long.message, expression) != null);
 
-    var override = blk: {
+    var escaped = blk: {
         const text = try testing.allocator.dupe(u8,
             \\{"list": {"down": ["g Ctrl+Ctrl+\u0078"]}}
         );
         defer testing.allocator.free(text);
-        break :blk (try Map.load(testing.allocator, &.{}, text)).invalid;
+        break :blk (try Map.load(testing.allocator, text)).invalid;
     };
-    defer override.deinit();
-    try testing.expectEqual(Diagnostic.Kind.invalid_key, override.kind);
-    try testing.expect(std.mem.indexOf(u8, override.message, "list.down") != null);
-    try testing.expect(std.mem.indexOf(u8, override.message, "g Ctrl+Ctrl+x") != null);
+    defer escaped.deinit();
+    try testing.expectEqual(Diagnostic.Kind.invalid_key, escaped.kind);
+    try testing.expect(std.mem.indexOf(u8, escaped.message, "list.down") != null);
+    try testing.expect(std.mem.indexOf(u8, escaped.message, "g Ctrl+Ctrl+x") != null);
 
-    var empty = (try Map.load(testing.allocator, &.{
-        .{ .context = .list, .action = .down, .keys = &.{" "} },
-    }, null)).invalid;
+    var empty = (try Map.load(testing.allocator,
+        \\{"list": {"down": [" "]}}
+    )).invalid;
     defer empty.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_key, empty.kind);
 }
@@ -352,60 +307,45 @@ test "load owns complete invalid key diagnostics" {
 test "load reports syntax locations and rejects duplicate fields" {
     // Strict parsing must expose a useful location without accepting ambiguous JSON.
     const Map = Bindings(enum { list }, enum { down });
-    var syntax = (try Map.load(testing.allocator, &.{},
+    var syntax = (try Map.load(testing.allocator,
         \\{
         \\"list": ?
         \\}
     )).invalid;
     defer syntax.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_json, syntax.kind);
-    try testing.expectEqual(@as(?u64, 2), syntax.line);
-    try testing.expectEqual(@as(?u64, 9), syntax.column);
+    try testing.expectEqual(Diagnostic.Position{ .line = 2, .column = 9 }, syntax.position.?);
 
-    var context = (try Map.load(testing.allocator, &.{},
+    var context = (try Map.load(testing.allocator,
         \\{"list": {}, "list": {}}
     )).invalid;
     defer context.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_json, context.kind);
 
-    var action = (try Map.load(testing.allocator, &.{},
+    var action = (try Map.load(testing.allocator,
         \\{"list": {"down": [], "down": []}}
     )).invalid;
     defer action.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_json, action.kind);
 
-    var comment = (try Map.load(testing.allocator, &.{},
+    var comment = (try Map.load(testing.allocator,
         \\{/* comment */ "list": {}}
     )).invalid;
     defer comment.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_json, comment.kind);
 
-    var comma = (try Map.load(testing.allocator, &.{},
+    var comma = (try Map.load(testing.allocator,
         \\{"list": {},}
     )).invalid;
     defer comma.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_json, comma.kind);
 }
 
-test "load identifies duplicate defaults" {
-    // Repeated pairs make JSON replacement ambiguous.
-    const Map = Bindings(enum { list }, enum { down });
-    var duplicate = (try Map.load(testing.allocator, &.{
-        .{ .context = .list, .action = .down, .keys = &.{"j"} },
-        .{ .context = .list, .action = .down, .keys = &.{"Down"} },
-    }, null)).invalid;
-    defer duplicate.deinit();
-    try testing.expectEqual(Diagnostic.Kind.duplicate_default, duplicate.kind);
-    try testing.expect(std.mem.indexOf(u8, duplicate.message, "list.down") != null);
-}
-
 test "load identifies equivalent key collisions" {
     // Both assignments must be named so users can resolve aliases that overlap.
     const Map = Bindings(enum { list }, enum { down, up });
-    var collision = (try Map.load(testing.allocator, &.{
-        .{ .context = .list, .action = .down, .keys = &.{"Cmd+j"} },
-    },
-        \\{"list": {"up": ["Super+j"]}}
+    var collision = (try Map.load(testing.allocator,
+        \\{"list": {"down": ["Cmd+j"], "up": ["Super+j"]}}
     )).invalid;
     defer collision.deinit();
     try testing.expectEqual(Diagnostic.Kind.collision, collision.kind);
@@ -414,10 +354,9 @@ test "load identifies equivalent key collisions" {
     try testing.expect(std.mem.indexOf(u8, collision.message, "Cmd+j") != null);
     try testing.expect(std.mem.indexOf(u8, collision.message, "Super+j") != null);
 
-    var shift = (try Map.load(testing.allocator, &.{
-        .{ .context = .list, .action = .down, .keys = &.{"Shift+j"} },
-        .{ .context = .list, .action = .up, .keys = &.{"J"} },
-    }, null)).invalid;
+    var shift = (try Map.load(testing.allocator,
+        \\{"list": {"down": ["Shift+j"], "up": ["J"]}}
+    )).invalid;
     defer shift.deinit();
     try testing.expectEqual(Diagnostic.Kind.collision, shift.kind);
 }
@@ -425,42 +364,31 @@ test "load identifies equivalent key collisions" {
 test "load identifies sequence prefix collisions" {
     // A complete binding must not require waiting for a longer binding in the same context.
     const Map = Bindings(enum { list }, enum { top, next });
-    var aliases = (try Map.load(testing.allocator, &.{
-        .{ .context = .list, .action = .top, .keys = &.{ "g", "g g" } },
-    }, null)).invalid;
+    var aliases = (try Map.load(testing.allocator,
+        \\{"list": {"top": ["g", "g g"]}}
+    )).invalid;
     defer aliases.deinit();
     try testing.expectEqual(Diagnostic.Kind.collision, aliases.kind);
     try testing.expect(std.mem.indexOf(u8, aliases.message, "'g'") != null);
     try testing.expect(std.mem.indexOf(u8, aliases.message, "'g g'") != null);
 
-    var actions = (try Map.load(testing.allocator, &.{
-        .{ .context = .list, .action = .top, .keys = &.{"g g"} },
-        .{ .context = .list, .action = .next, .keys = &.{"g n"} },
-    },
-        \\{"list": {"next": ["g"]}}
+    var actions = (try Map.load(testing.allocator,
+        \\{"list": {"top": ["g g"], "next": ["g"]}}
     )).invalid;
     defer actions.deinit();
     try testing.expectEqual(Diagnostic.Kind.collision, actions.kind);
 }
 
-test "load owns keys after defaults and JSON are freed" {
+test "load owns keys after JSON is freed" {
     // Applications may release their configuration buffers after loading.
     const Action = enum { down, up };
     const Map = Bindings(enum { list }, Action);
     var bindings = blk: {
-        const key = try testing.allocator.dupe(u8, "Ctrl+n");
-        defer testing.allocator.free(key);
-        const aliases = try testing.allocator.alloc([]const u8, 1);
-        defer testing.allocator.free(aliases);
-        aliases[0] = key;
-        const defaults = try testing.allocator.alloc(Map.Default, 1);
-        defer testing.allocator.free(defaults);
-        defaults[0] = .{ .context = .list, .action = .down, .keys = aliases };
         const text = try testing.allocator.dupe(u8,
-            \\{"list": {"up": ["Ctrl+\u3042"]}}
+            \\{"list": {"down": ["Ctrl+n"], "up": ["Ctrl+\u3042"]}}
         );
         defer testing.allocator.free(text);
-        break :blk (try Map.load(testing.allocator, defaults, text)).bindings;
+        break :blk (try Map.load(testing.allocator, text)).bindings;
     };
     defer bindings.deinit();
 
@@ -479,13 +407,11 @@ test "load frees partial state when allocation fails" {
     const Fixture = struct {
         fn load(allocator: std.mem.Allocator) !void {
             const Map = Bindings(enum { global, list }, enum { quit, top });
-            var bindings = (try Map.load(allocator, &.{
-                .{ .context = .global, .action = .quit, .keys = &.{"q"} },
-            },
-                \\{"list": {"top": ["Cmd+\u3042 Space", "g g"]}}
+            var bindings = (try Map.load(allocator,
+                \\{"global": {"quit": ["q"]}, "list": {"top": ["Cmd+\u3042 Space", "g g"]}}
             )).bindings;
             defer bindings.deinit();
-            var invalid = (try Map.load(allocator, &.{},
+            var invalid = (try Map.load(allocator,
                 \\{"list": {"top": ["g g", "g"]}}
             )).invalid;
             defer invalid.deinit();

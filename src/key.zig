@@ -88,6 +88,19 @@ pub const NamedKey = enum {
     kp_insert,
     kp_delete,
     kp_begin,
+    media_play,
+    media_pause,
+    media_play_pause,
+    media_reverse,
+    media_stop,
+    media_fast_forward,
+    media_rewind,
+    media_track_next,
+    media_track_previous,
+    media_record,
+    lower_volume,
+    raise_volume,
+    mute_volume,
 
     fn label(comptime self: NamedKey) []const u8 {
         const text = comptime blk: {
@@ -222,7 +235,7 @@ test "parse accepts modifier aliases without OS selection" {
     try testing.expectEqual(ctrl, try KeyPress.parse("cOnTrOl+k"));
 }
 
-test "parse accepts extended function system and keypad names" {
+test "parse accepts extended named keys" {
     // Extended keys must be configurable, including names with multiple words.
     try testing.expectEqualStrings("f13", @tagName((try KeyPress.parse("F13")).key.named));
     try testing.expectEqualStrings("f35", @tagName((try KeyPress.parse("f35")).key.named));
@@ -231,6 +244,9 @@ test "parse accepts extended function system and keypad names" {
     try testing.expectEqualStrings("kp_0", @tagName((try KeyPress.parse("Keypad0")).key.named));
     try testing.expectEqualStrings("kp_9", @tagName((try KeyPress.parse("Keypad9")).key.named));
     try testing.expectEqualStrings("kp_page_down", @tagName((try KeyPress.parse("kEyPaDpAgEdOwN")).key.named));
+    try testing.expectEqualStrings("media_play_pause", @tagName((try KeyPress.parse("MediaPlayPause")).key.named));
+    try testing.expectEqualStrings("raise_volume", @tagName((try KeyPress.parse("RaiseVolume")).key.named));
+    try testing.expectEqualStrings("mute_volume", @tagName((try KeyPress.parse("MuteVolume")).key.named));
     try testing.expectError(error.InvalidKey, KeyPress.parse("F36"));
     try testing.expectError(error.InvalidKey, KeyPress.parse("Keypad10"));
 }
