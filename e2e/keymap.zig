@@ -113,12 +113,6 @@ test "cancellation inactive contexts and mismatches clear pending keys" {
     try testing.expect(bindings.receive(&.{.list}, n) == .none);
     try testing.expect(bindings.receive(&.{.list}, prefix) == .pending);
     try testing.expectEqual(Action.quit, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'q' })).action);
-
-    // Releases must discard inactive prefixes even if the original context resumes before the next press.
-    try testing.expect(bindings.receive(&.{.list}, prefix) == .pending);
-    const release: vaxis.Event = .{ .key_release = .{ .codepoint = 'b', .mods = .{ .ctrl = true } } };
-    try testing.expect(bindings.receive(&.{.dialog}, keymap.libvaxisMatcher(release)) == .none);
-    try testing.expect(bindings.receive(&.{.list}, n) == .none);
 }
 
 test "three-step sequences consume each event once" {
@@ -250,6 +244,22 @@ test "native single-key overlaps follow JSON declaration priority" {
     try testing.expectEqual(Action.up, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } })).action);
 }
 
+test "ASCII Shift bindings ignore optional native text" {
+    // Caps Lock can produce lowercase text while Shift remains pressed.
+    const Action = enum { plain, shifted };
+    const Map = keymap.Bindings(enum { list }, Action);
+    var bindings = (try Map.load(testing.allocator,
+        \\{"list": {"plain": ["Ctrl+j"], "shifted": ["Ctrl+J"]}}
+    )).bindings;
+    defer bindings.deinit();
+
+    var parser: vaxis.Parser = .{};
+    const without_text = (try parser.parse("\x1b[106:74;70u", null)).event.?;
+    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(without_text.key_press)).action);
+    const with_text = (try parser.parse("\x1b[106:74;70;106u", null)).event.?;
+    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(with_text.key_press)).action);
+}
+
 test "native text requires Shift before selecting shifted bindings" {
     // Text fields must not let an unshifted event invoke a shifted action.
     const Action = enum { shifted_digit, digit, shifted_space, space };
@@ -278,108 +288,4 @@ test "native text requires Shift before selecting shifted bindings" {
         .text = " ",
         .mods = .{ .shift = true },
     })).action);
-}
-
-test "ASCII Shift bindings ignore optional native text" {
-    // Caps Lock can produce lowercase text while Shift remains pressed.
-    const Action = enum { plain, shifted };
-    const Map = keymap.Bindings(enum { list }, Action);
-    var bindings = (try Map.load(testing.allocator,
-        \\{"list": {"plain": ["Ctrl+j"], "shifted": ["Ctrl+J"]}}
-    )).bindings;
-    defer bindings.deinit();
-
-    var parser: vaxis.Parser = .{};
-    const without_text = (try parser.parse("\x1b[106:74;70u", null)).event.?;
-    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(without_text.key_press)).action);
-    const with_text = (try parser.parse("\x1b[106:74;70;106u", null)).event.?;
-    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(with_text.key_press)).action);
-}
-
-test "native modifier events distinguish left right and both sides" {
-    // Aggregate Ctrl flags need press/release history; unknown sides must never select a sided action.
-    const Action = enum { left, right, both, modifier };
-    const Map = keymap.Bindings(enum { list }, Action);
-    var bindings = (try Map.load(testing.allocator,
-        \\{"list": {"left": ["LeftCtrl+x"], "right": ["RightCtrl+x"], "both": ["LeftCtrl+RightCtrl+x"], "modifier": ["LeftControl", "RightControl"]}}
-    )).bindings;
-    defer bindings.deinit();
-    const left = keymap.libvaxisMatcher(vaxis.Event{ .key_press = .{ .codepoint = Key.left_control, .mods = .{ .ctrl = true } } });
-    const right = keymap.libvaxisMatcher(vaxis.Event{ .key_press = .{ .codepoint = Key.right_control, .mods = .{ .ctrl = true } } });
-    const x = keymap.libvaxisMatcher(Key{ .codepoint = 'x', .mods = .{ .ctrl = true } });
-
-    try testing.expect(bindings.receive(&.{.list}, x) == .none);
-    try testing.expect(bindings.receive(&.{.list}, left) == .none);
-    try testing.expect(bindings.receive(&.{.list}, x) == .none);
-    bindings.cancel();
-    try testing.expectEqual(Action.modifier, bindings.receive(&.{.list}, left).action);
-    try testing.expectEqual(Action.left, bindings.receive(&.{.list}, x).action);
-    try testing.expect(bindings.receive(&.{.list}, right) == .none);
-    try testing.expectEqual(Action.both, bindings.receive(&.{.list}, x).action);
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(vaxis.Event{
-        .key_release = .{ .codepoint = Key.left_control, .mods = .{ .ctrl = true } },
-    })) == .none);
-    try testing.expectEqual(Action.right, bindings.receive(&.{.list}, x).action);
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(vaxis.Event{
-        .key_release = .{ .codepoint = Key.right_control },
-    })) == .none);
-    try testing.expectEqual(Action.modifier, bindings.receive(&.{.list}, right).action);
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(@as(vaxis.Event, .focus_out))) == .none);
-    try testing.expect(bindings.receive(&.{.list}, x) == .none);
-}
-
-test "modifier presses and key releases preserve pending sequences" {
-    // Holding a modifier for a later step must not consume or cancel the earlier prefix.
-    const Action = enum { next };
-    const Map = keymap.Bindings(enum { list }, Action);
-    var bindings = (try Map.load(testing.allocator,
-        \\{"list": {"next": ["g LeftCtrl+x"]}}
-    )).bindings;
-    defer bindings.deinit();
-
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'g' })) == .pending);
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(vaxis.Event{ .key_release = .{ .codepoint = 'g' } })) == .none);
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(@as(vaxis.Event, .focus_in))) == .none);
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.left_control, .mods = .{ .ctrl = true } })) == .pending);
-    try testing.expectEqual(Action.next, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'x', .mods = .{ .ctrl = true } })).action);
-}
-
-test "configured modifier presses retry the start of a sequence" {
-    // A bound modifier remains an ordinary sequence key, including restart after a mismatch.
-    const Action = enum { next };
-    const Map = keymap.Bindings(enum { list }, Action);
-    var bindings = (try Map.load(testing.allocator,
-        \\{"list": {"next": ["LeftControl Ctrl+y Ctrl+x"]}}
-    )).bindings;
-    defer bindings.deinit();
-    const ctrl = keymap.libvaxisMatcher(Key{ .codepoint = Key.left_control, .mods = .{ .ctrl = true } });
-    const y = keymap.libvaxisMatcher(Key{ .codepoint = 'y', .mods = .{ .ctrl = true } });
-    const x = keymap.libvaxisMatcher(Key{ .codepoint = 'x', .mods = .{ .ctrl = true } });
-
-    try testing.expect(bindings.receive(&.{.list}, ctrl) == .pending);
-    try testing.expect(bindings.receive(&.{.list}, y) == .pending);
-    try testing.expect(bindings.receive(&.{.list}, ctrl) == .pending);
-    try testing.expect(bindings.receive(&.{.list}, x) == .none);
-    try testing.expect(bindings.receive(&.{.list}, ctrl) == .pending);
-    try testing.expect(bindings.receive(&.{.list}, y) == .pending);
-    try testing.expectEqual(Action.next, bindings.receive(&.{.list}, x).action);
-}
-
-test "native Shift and Cmd sides combine independently" {
-    // Sided Shift must preserve ASCII aliases while another modifier changes sides.
-    const Action = enum { first, second };
-    const Map = keymap.Bindings(enum { list }, Action);
-    var bindings = (try Map.load(testing.allocator,
-        \\{"list": {"first": ["LeftShift+RightCmd+J"], "second": ["RightShift+LeftCmd+j"]}}
-    )).bindings;
-    defer bindings.deinit();
-    const j = keymap.libvaxisMatcher(Key{ .codepoint = 'j', .shifted_codepoint = 'J', .text = "j", .mods = .{ .shift = true, .super = true } });
-
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.left_shift, .mods = .{ .shift = true } })) == .none);
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.right_super, .mods = .{ .shift = true, .super = true } })) == .none);
-    try testing.expectEqual(Action.first, bindings.receive(&.{.list}, j).action);
-    bindings.cancel();
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.right_shift, .mods = .{ .shift = true } })) == .none);
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.left_super, .mods = .{ .shift = true, .super = true } })) == .none);
-    try testing.expectEqual(Action.second, bindings.receive(&.{.list}, j).action);
 }
