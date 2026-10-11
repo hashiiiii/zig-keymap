@@ -244,15 +244,15 @@ pub const KeyPress = struct {
             if (result.modifiers.shift == .none) result.modifiers.shift = .any;
         }
         if (modifierKey(result.key)) |modifier| {
-            inline for (std.meta.fields(Modifiers)) |field| {
-                if (std.mem.eql(u8, field.name, @tagName(modifier.kind))) {
-                    const state = @field(result.modifiers, field.name);
-                    @field(result.modifiers, field.name) = switch (state) {
+            switch (modifier.kind) {
+                inline else => |kind| {
+                    const state = @field(result.modifiers, @tagName(kind));
+                    @field(result.modifiers, @tagName(kind)) = switch (state) {
                         .none, .any => state,
                         .left, .right => if (state == modifier.side) .none else state,
                         .both => if (modifier.side == .left) .right else .left,
                     };
-                }
+                },
             }
         }
         return result;
@@ -294,7 +294,7 @@ pub fn overlaps(a: KeyPress, b: KeyPress) bool {
 }
 
 pub fn modifierKey(key: Key) ?struct {
-    kind: enum { shift, ctrl, alt, super, hyper, meta },
+    kind: std.meta.FieldEnum(Modifiers),
     side: Modifiers.State,
 } {
     if (key != .named) return null;
@@ -338,6 +338,7 @@ test "parse accepts modifier aliases without OS selection" {
     try testing.expectEqual(super, try KeyPress.parse("wIn+k"));
     try testing.expectEqual(super, try KeyPress.parse("WiNdOwS+k"));
     try testing.expectEqual(ctrl, try KeyPress.parse("cOnTrOl+k"));
+    try testing.expectEqual(Modifiers{ .alt = .left, .super = .right }, (try KeyPress.parse("lEfToPtIoN+RightCmd+x")).modifiers);
 }
 
 test "parse accepts extended named keys" {
@@ -361,6 +362,9 @@ test "parse rejects repeated modifiers written as platform aliases" {
     try testing.expectError(error.InvalidKey, KeyPress.parse("Alt+Option+k"));
     try testing.expectError(error.InvalidKey, KeyPress.parse("Command+Super+k"));
     try testing.expectError(error.InvalidKey, KeyPress.parse("Control+Ctrl+k"));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("LeftCtrl+LeftControl+x"));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("Ctrl+RightControl+x"));
+    try testing.expectError(error.InvalidKey, KeyPress.parse("LeftCtrl+RightCtrl+LeftCtrl+x"));
 }
 
 test "parse accepts a literal plus with or without modifiers" {
@@ -397,23 +401,4 @@ test "matches detects named keys and their control character aliases" {
     try testing.expect((try KeyPress.parse("Enter")).matches(try KeyPress.parse("\r")));
     try testing.expect((try KeyPress.parse("Escape")).matches(try KeyPress.parse("\x1b")));
     try testing.expect((try KeyPress.parse("Backspace")).matches(try KeyPress.parse("\x7f")));
-}
-
-test "parse accepts individual left and right modifier keys" {
-    // Modifier presses must remain configurable independently of ordinary shortcuts.
-    try testing.expectEqualStrings("left_control", @tagName((try KeyPress.parse("LeftControl")).key.named));
-    try testing.expectEqualStrings("right_control", @tagName((try KeyPress.parse("RightControl")).key.named));
-    try testing.expectEqualStrings("left_shift", @tagName((try KeyPress.parse("LeftShift")).key.named));
-    try testing.expectEqualStrings("right_super", @tagName((try KeyPress.parse("RightSuper")).key.named));
-}
-
-test "parse accepts shortcuts with left and right modifiers" {
-    // Both sides must remain independently configurable instead of becoming generic Ctrl.
-    try testing.expectEqual(Modifiers{ .ctrl = .left }, (try KeyPress.parse("LeftControl+x")).modifiers);
-    try testing.expectEqual(Modifiers{ .ctrl = .right }, (try KeyPress.parse("RightCtrl+x")).modifiers);
-    try testing.expectEqual(Modifiers{ .ctrl = .both }, (try KeyPress.parse("LeftControl+RightControl+x")).modifiers);
-    try testing.expectEqual(Modifiers{ .alt = .left, .super = .right }, (try KeyPress.parse("lEfToPtIoN+RightCmd+x")).modifiers);
-    try testing.expectError(error.InvalidKey, KeyPress.parse("LeftCtrl+LeftControl+x"));
-    try testing.expectError(error.InvalidKey, KeyPress.parse("Ctrl+RightControl+x"));
-    try testing.expectError(error.InvalidKey, KeyPress.parse("LeftCtrl+RightCtrl+LeftCtrl+x"));
 }

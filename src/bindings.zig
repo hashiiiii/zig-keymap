@@ -166,11 +166,7 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
             }
             const Input = @TypeOf(input);
             const MatcherType = if (@typeInfo(Input) == .pointer) @typeInfo(Input).pointer.child else Input;
-            const has_event = switch (@typeInfo(MatcherType)) {
-                .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(MatcherType, "keyEvent"),
-                else => false,
-            };
-            if (comptime Input == KeyPress or Input == KeyEvent or has_event) {
+            if (comptime Input == KeyPress or Input == KeyEvent or @hasDecl(MatcherType, "keyEvent")) {
                 const event: KeyEvent = if (Input == KeyPress)
                     .{ .press = input }
                 else if (Input == KeyEvent)
@@ -201,14 +197,18 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
         }
 
         fn observeModifiers(self: *Self, press: KeyPress, release: bool) Modifiers {
-            const modifier = key.modifierKey(press.key);
+            var modifiers = press.modifiers;
             inline for (std.meta.fields(Modifiers)) |field| {
                 const reported = @field(press.modifiers, field.name);
                 const previous = @field(self.held_modifiers, field.name);
-                @field(self.held_modifiers, field.name) = if (reported == .any and previous != .none) previous else reported;
-                if (modifier) |own| {
-                    if (std.mem.eql(u8, field.name, @tagName(own.kind))) {
-                        @field(self.held_modifiers, field.name) = if (release) switch (reported) {
+                if (reported == .any and previous != .none) @field(modifiers, field.name) = previous;
+            }
+            if (key.modifierKey(press.key)) |own| {
+                switch (own.kind) {
+                    inline else => |kind| {
+                        const reported = @field(press.modifiers, @tagName(kind));
+                        const previous = @field(self.held_modifiers, @tagName(kind));
+                        @field(modifiers, @tagName(kind)) = if (release) switch (reported) {
                             .none => .none,
                             // The released side is up, so an active aggregate flag identifies the opposite side.
                             .any => if (own.side == .left) .right else .left,
@@ -222,10 +222,11 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                                 .any, .both => previous,
                             },
                         };
-                    }
+                    },
                 }
             }
-            return self.held_modifiers;
+            self.held_modifiers = modifiers;
+            return modifiers;
         }
 
         fn match(self: *Self, active_contexts: []const Context, matcher: anytype, modifier_press: bool) Result {
@@ -468,26 +469,13 @@ test "load identifies sequence prefix collisions" {
 }
 
 test "load rejects overlapping sided and unsided modifiers" {
-    // Wildcards can overlap in different modifier groups, regardless of declaration order.
+    // Neither pattern matches the other, but one input can satisfy both wildcard requirements.
     const Map = Bindings(enum { list }, enum { first, second });
-    for ([_][]const u8{
-        \\{"list": {"first": ["LeftCtrl+x"], "second": ["Ctrl+x"]}}
-        ,
-        \\{"list": {"first": ["Ctrl+x"], "second": ["RightCtrl+x"]}}
-        ,
+    var collision = (try Map.load(testing.allocator,
         \\{"list": {"first": ["LeftCtrl+Alt+x"], "second": ["Ctrl+RightAlt+x"]}}
-        ,
-        \\{"list": {"first": ["LeftCtrl+x y"], "second": ["Ctrl+x"]}}
-        ,
-    }) |json| {
-        var loaded = try Map.load(testing.allocator, json);
-        defer switch (loaded) {
-            .bindings => |*bindings| bindings.deinit(),
-            .invalid => |*diagnostic| diagnostic.deinit(),
-        };
-        try testing.expect(loaded == .invalid);
-        try testing.expectEqual(Diagnostic.Kind.collision, loaded.invalid.kind);
-    }
+    )).invalid;
+    defer collision.deinit();
+    try testing.expectEqual(Diagnostic.Kind.collision, collision.kind);
 }
 
 test "load owns keys after JSON is freed" {

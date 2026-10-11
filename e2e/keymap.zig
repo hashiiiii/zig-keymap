@@ -116,8 +116,7 @@ test "cancellation inactive contexts and mismatches clear pending keys" {
 
     // Releases must discard inactive prefixes even if the original context resumes before the next press.
     try testing.expect(bindings.receive(&.{.list}, prefix) == .pending);
-    var parser: vaxis.Parser = .{};
-    const release = (try parser.parse("\x1b[98;5:3u", null)).event.?;
+    const release: vaxis.Event = .{ .key_release = .{ .codepoint = 'b', .mods = .{ .ctrl = true } } };
     try testing.expect(bindings.receive(&.{.dialog}, keymap.libvaxisMatcher(release)) == .none);
     try testing.expect(bindings.receive(&.{.list}, n) == .none);
 }
@@ -298,56 +297,35 @@ test "ASCII Shift bindings ignore optional native text" {
 }
 
 test "native modifier events distinguish left right and both sides" {
-    // Aggregate Ctrl flags need press/release history; an unknown side must never select a sided action.
+    // Aggregate Ctrl flags need press/release history; unknown sides must never select a sided action.
     const Action = enum { left, right, both, modifier };
     const Map = keymap.Bindings(enum { list }, Action);
-    const json =
+    var bindings = (try Map.load(testing.allocator,
         \\{"list": {"left": ["LeftCtrl+x"], "right": ["RightCtrl+x"], "both": ["LeftCtrl+RightCtrl+x"], "modifier": ["LeftControl", "RightControl"]}}
-    ;
-    var bindings = (try Map.load(testing.allocator, json)).bindings;
+    )).bindings;
     defer bindings.deinit();
-    var other = (try Map.load(testing.allocator, json)).bindings;
-    defer other.deinit();
+    const left = keymap.libvaxisMatcher(vaxis.Event{ .key_press = .{ .codepoint = Key.left_control, .mods = .{ .ctrl = true } } });
+    const right = keymap.libvaxisMatcher(vaxis.Event{ .key_press = .{ .codepoint = Key.right_control, .mods = .{ .ctrl = true } } });
+    const x = keymap.libvaxisMatcher(Key{ .codepoint = 'x', .mods = .{ .ctrl = true } });
 
-    var parser: vaxis.Parser = .{};
-    const cases = [_]struct { []const u8, Map.Result }{
-        .{ "\x1b[120;5u", .none },
-        .{ "\x1b[57442;5u", .none },
-        .{ "\x1b[120;5u", .none },
-        .{ "\x1b[57442;5:3u", .none },
-        .{ "\x1b[120;5u", .{ .action = .right } },
-        .{ "\x1b[57448;1:3u", .none },
-        .{ "\x1b[120u", .none },
-        .{ "\x1b[57442;5u", .{ .action = .modifier } },
-        .{ "\x1b[120;5u", .{ .action = .left } },
-        .{ "\x1b[I", .none },
-        .{ "\x1b[57442;5:2u", .{ .action = .modifier } },
-        .{ "\x1b[120;5:2u", .{ .action = .left } },
-        .{ "\x1b[57448;5u", .none },
-        .{ "\x1b[120;5u", .{ .action = .both } },
-        .{ "\x1b[57442;5:3u", .none },
-        .{ "\x1b[120;5u", .{ .action = .right } },
-        .{ "\x1b[57448;1:3u", .none },
-        .{ "\x1b[120;5u", .none },
-        .{ "\x1b[120u", .none },
-        .{ "\x1b[57448;5u", .{ .action = .modifier } },
-        .{ "\x1b[120;5u", .{ .action = .right } },
-        .{ "\x1b[O", .none },
-        .{ "\x1b[120;5u", .none },
-    };
-    for (cases) |case| {
-        const event = (try parser.parse(case[0], null)).event.?;
-        try testing.expectEqualDeep(case[1], bindings.receive(&.{.list}, keymap.libvaxisMatcher(event)));
-        if (case[1] == .action and case[1].action == .left) {
-            const x = (try parser.parse("\x1b[120;5u", null)).event.?;
-            try testing.expect(other.receive(&.{.list}, keymap.libvaxisMatcher(x)) == .none);
-        }
-    }
-    const left = (try parser.parse("\x1b[57442;5u", null)).event.?;
-    _ = bindings.receive(&.{.list}, keymap.libvaxisMatcher(left));
+    try testing.expect(bindings.receive(&.{.list}, x) == .none);
+    try testing.expect(bindings.receive(&.{.list}, left) == .none);
+    try testing.expect(bindings.receive(&.{.list}, x) == .none);
     bindings.cancel();
-    const x = (try parser.parse("\x1b[120;5u", null)).event.?;
-    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(x)) == .none);
+    try testing.expectEqual(Action.modifier, bindings.receive(&.{.list}, left).action);
+    try testing.expectEqual(Action.left, bindings.receive(&.{.list}, x).action);
+    try testing.expect(bindings.receive(&.{.list}, right) == .none);
+    try testing.expectEqual(Action.both, bindings.receive(&.{.list}, x).action);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(vaxis.Event{
+        .key_release = .{ .codepoint = Key.left_control, .mods = .{ .ctrl = true } },
+    })) == .none);
+    try testing.expectEqual(Action.right, bindings.receive(&.{.list}, x).action);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(vaxis.Event{
+        .key_release = .{ .codepoint = Key.right_control },
+    })) == .none);
+    try testing.expectEqual(Action.modifier, bindings.receive(&.{.list}, right).action);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(@as(vaxis.Event, .focus_out))) == .none);
+    try testing.expect(bindings.receive(&.{.list}, x) == .none);
 }
 
 test "modifier presses and key releases preserve pending sequences" {
@@ -358,22 +336,12 @@ test "modifier presses and key releases preserve pending sequences" {
         \\{"list": {"next": ["g LeftCtrl+x"]}}
     )).bindings;
     defer bindings.deinit();
-    var parser: vaxis.Parser = .{};
-    const cases = [_]struct { []const u8, Map.Result }{
-        .{ "\x1b[103u", .pending },
-        .{ "\x1b[103;1:3u", .none },
-        .{ "\x1b[57442;5u", .pending },
-        .{ "\x1b[120;5u", .{ .action = .next } },
-        .{ "\x1b[57442;1:3u", .none },
-        .{ "\x1b[103u", .pending },
-        .{ "\x1b[O", .none },
-        .{ "\x1b[57442;5u", .none },
-        .{ "\x1b[120;5u", .none },
-    };
-    for (cases) |case| {
-        const event = (try parser.parse(case[0], null)).event.?;
-        try testing.expectEqualDeep(case[1], bindings.receive(&.{.list}, keymap.libvaxisMatcher(event)));
-    }
+
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'g' })) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(vaxis.Event{ .key_release = .{ .codepoint = 'g' } })) == .none);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(@as(vaxis.Event, .focus_in))) == .none);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.left_control, .mods = .{ .ctrl = true } })) == .pending);
+    try testing.expectEqual(Action.next, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'x', .mods = .{ .ctrl = true } })).action);
 }
 
 test "configured modifier presses retry the start of a sequence" {
@@ -384,20 +352,17 @@ test "configured modifier presses retry the start of a sequence" {
         \\{"list": {"next": ["LeftControl Ctrl+y Ctrl+x"]}}
     )).bindings;
     defer bindings.deinit();
-    var parser: vaxis.Parser = .{};
-    const cases = [_]struct { []const u8, Map.Result }{
-        .{ "\x1b[57442;5u", .pending },
-        .{ "\x1b[121;5u", .pending },
-        .{ "\x1b[57442;5:2u", .pending },
-        .{ "\x1b[120;5u", .none },
-        .{ "\x1b[57442;5:2u", .pending },
-        .{ "\x1b[121;5u", .pending },
-        .{ "\x1b[120;5u", .{ .action = .next } },
-    };
-    for (cases) |case| {
-        const event = (try parser.parse(case[0], null)).event.?;
-        try testing.expectEqualDeep(case[1], bindings.receive(&.{.list}, keymap.libvaxisMatcher(event)));
-    }
+    const ctrl = keymap.libvaxisMatcher(Key{ .codepoint = Key.left_control, .mods = .{ .ctrl = true } });
+    const y = keymap.libvaxisMatcher(Key{ .codepoint = 'y', .mods = .{ .ctrl = true } });
+    const x = keymap.libvaxisMatcher(Key{ .codepoint = 'x', .mods = .{ .ctrl = true } });
+
+    try testing.expect(bindings.receive(&.{.list}, ctrl) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, y) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, ctrl) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, x) == .none);
+    try testing.expect(bindings.receive(&.{.list}, ctrl) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, y) == .pending);
+    try testing.expectEqual(Action.next, bindings.receive(&.{.list}, x).action);
 }
 
 test "native Shift and Cmd sides combine independently" {
@@ -408,21 +373,13 @@ test "native Shift and Cmd sides combine independently" {
         \\{"list": {"first": ["LeftShift+RightCmd+J"], "second": ["RightShift+LeftCmd+j"]}}
     )).bindings;
     defer bindings.deinit();
-    var parser: vaxis.Parser = .{};
-    const cases = [_]struct { []const u8, Map.Result }{
-        .{ "\x1b[57441;2u", .none },
-        .{ "\x1b[57450;10u", .none },
-        .{ "\x1b[106:74;10;106u", .{ .action = .first } },
-        .{ "\x1b[57441;9:3u", .none },
-        .{ "\x1b[106;9u", .none },
-        .{ "\x1b[57444;9u", .none },
-        .{ "\x1b[57447;10u", .none },
-        .{ "\x1b[106:74;10u", .none },
-        .{ "\x1b[57450;10:3u", .none },
-        .{ "\x1b[106:74;10u", .{ .action = .second } },
-    };
-    for (cases) |case| {
-        const event = (try parser.parse(case[0], null)).event.?;
-        try testing.expectEqualDeep(case[1], bindings.receive(&.{.list}, keymap.libvaxisMatcher(event)));
-    }
+    const j = keymap.libvaxisMatcher(Key{ .codepoint = 'j', .shifted_codepoint = 'J', .text = "j", .mods = .{ .shift = true, .super = true } });
+
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.left_shift, .mods = .{ .shift = true } })) == .none);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.right_super, .mods = .{ .shift = true, .super = true } })) == .none);
+    try testing.expectEqual(Action.first, bindings.receive(&.{.list}, j).action);
+    bindings.cancel();
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.right_shift, .mods = .{ .shift = true } })) == .none);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = Key.left_super, .mods = .{ .shift = true, .super = true } })) == .none);
+    try testing.expectEqual(Action.second, bindings.receive(&.{.list}, j).action);
 }

@@ -8,9 +8,9 @@ const Modifiers = keymap.Modifiers;
 /// ASCII uppercase also matches a lowercase codepoint with Shift.
 /// Pass full events to track left/right modifiers and focus loss. Other events are ignored.
 /// Keypad identity also uses base_layout_codepoint.
-pub fn libvaxisMatcher(input: anytype) Matcher(NativeKeyType(@TypeOf(input))) {
+pub fn libvaxisMatcher(input: anytype) Matcher(@TypeOf(input)) {
     const Input = @TypeOf(input);
-    const Result = Matcher(NativeKeyType(Input));
+    const Result = Matcher(Input);
     if (@typeInfo(Input) == .@"union") {
         if (input == .key_press) return Result.init(input.key_press, false);
         if (@hasField(Input, "key_release")) {
@@ -24,17 +24,8 @@ pub fn libvaxisMatcher(input: anytype) Matcher(NativeKeyType(@TypeOf(input))) {
     return Result.init(input, false);
 }
 
-fn NativeKeyType(comptime Input: type) type {
-    if (@typeInfo(Input) == .@"union") {
-        inline for (std.meta.fields(Input)) |field| {
-            if (comptime std.mem.eql(u8, field.name, "key_press")) return field.type;
-        }
-        @compileError("libvaxis events must include key_press");
-    }
-    return Input;
-}
-
-fn Matcher(comptime NativeKey: type) type {
+fn Matcher(comptime Input: type) type {
+    const NativeKey = if (@typeInfo(Input) == .@"union") @FieldType(Input, "key_press") else Input;
     return struct {
         const Self = @This();
         key: ?NativeKey = null,
