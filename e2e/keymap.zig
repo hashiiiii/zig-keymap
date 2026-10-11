@@ -92,6 +92,37 @@ test "shared sequence prefixes select the matching action" {
     try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = 'x' })) == .none);
 }
 
+test "modifier-only events preserve pending sequences" {
+    // Kitty reports modifier presses before the modified key, so they must not cancel its prefix.
+    const Action = enum { next, quit };
+    const Map = keymap.Bindings(enum { list, dialog }, Action);
+    var bindings = (try Map.load(testing.allocator,
+        \\{"list": {"next": ["g Ctrl+n"], "quit": ["g Cmd+q"]}}
+    )).bindings;
+    defer bindings.deinit();
+
+    var parser: vaxis.Parser = .{};
+    const g = (try parser.parse("\x1b[103u", null)).event.?;
+    const ctrl = (try parser.parse("\x1b[57442;5u", null)).event.?;
+    const ctrl_n = (try parser.parse("\x1b[110;5u", null)).event.?;
+    const cmd = (try parser.parse("\x1b[57450;9u", null)).event.?;
+    const cmd_q = (try parser.parse("\x1b[113;9u", null)).event.?;
+
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(ctrl.key_press)) == .none);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(g.key_press)) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(ctrl.key_press)) == .none);
+    try testing.expectEqual(Map.Result{ .action = .next }, bindings.receive(&.{.list}, keymap.libvaxisMatcher(ctrl_n.key_press)));
+
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(g.key_press)) == .pending);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(cmd.key_press)) == .none);
+    try testing.expectEqual(Map.Result{ .action = .quit }, bindings.receive(&.{.list}, keymap.libvaxisMatcher(cmd_q.key_press)));
+
+    // Ignoring input must still discard a prefix whose context became inactive.
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(g.key_press)) == .pending);
+    try testing.expect(bindings.receive(&.{.dialog}, keymap.libvaxisMatcher(ctrl.key_press)) == .none);
+    try testing.expect(bindings.receive(&.{.list}, keymap.libvaxisMatcher(ctrl_n.key_press)) == .none);
+}
+
 test "cancellation inactive contexts and mismatches clear pending keys" {
     // Stale prefixes must not run actions after focus changes or unrelated input.
     const Action = enum { next, quit };
