@@ -74,6 +74,7 @@ pub fn main(init: std.process.Init) !void {
     var loop: vaxis.Loop(Event) = .init(io, &tty, &vx);
     try loop.start();
     defer loop.stop();
+    try vx.queryTerminal(tty.writer(), .fromSeconds(1));
 
     var row: usize = 0;
     const active_contexts: []const Context = &.{ .list, .global };
@@ -144,7 +145,7 @@ Create one `Bindings` instance per input stream.
 
 Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.  
 Normalization covers ASCII Shift, named control characters, and modifier aliases.  
-Keyboard layout and native text can create additional overlaps, such as `:` and `Shift+;`.  
+Native text and base-layout keys can create additional overlaps, such as `:` and `Shift+;`.  
 These follow context priority and JSON declaration order.  
 A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.  
 Sequences have no timeout; call `cancel()` when focus changes without input.
@@ -168,7 +169,8 @@ Use `Ctrl++` for plus, `Space` for the space key, and spaces between successive 
 | Volume | `LowerVolume`, `RaiseVolume`, `MuteVolume` |
 
 Keypad names remain distinct from main-keyboard bindings when the backend reports keypad identity.  
-`libvaxisMatcher` also reads keypad identity from `base_layout_codepoint` on Windows.
+`libvaxisMatcher` uses `base_layout_codepoint` for shortcuts and keypad identity.  
+Caps Lock does not imply Shift for ASCII bindings.
 
 | Modifier | Accepted names |
 | --- | --- |
