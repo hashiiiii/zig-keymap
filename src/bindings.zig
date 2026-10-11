@@ -74,6 +74,8 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
         /// Empty arrays and omitted actions leave keys unbound.
         /// Invalid configuration returns .invalid; allocation failures return error.OutOfMemory.
         /// Both payloads own their data; callers may free text after loading.
+        /// Rejects sequence prefixes and equivalent keys assigned to different actions within a context.
+        /// Backend-specific text or layout overlaps follow context priority and JSON declaration order.
         pub fn load(allocator: std.mem.Allocator, text: []const u8) std.mem.Allocator.Error!LoadResult {
             var arena = std.heap.ArenaAllocator.init(allocator);
             var retained = false;
@@ -109,8 +111,19 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
                     for (value.array.items, 0..) |item, index| {
                         if (item != .string)
                             return invalid(allocator, .invalid_type, "'{s}.{s}[{d}]' must be a key string", .{ context_name, action_name, index });
-                        if (try appendBinding(allocator, storage, temporary, &parsed, context, action, item.string)) |diagnostic|
-                            return .{ .invalid = diagnostic };
+                        var steps = std.mem.tokenizeScalar(u8, item.string, ' ');
+                        var keys: std.ArrayList(KeyPress) = .empty;
+                        while (steps.next()) |step| {
+                            const key = KeyPress.parse(step) catch
+                                return invalid(allocator, .invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ item.string, context_name, action_name });
+                            try keys.append(storage, key);
+                        }
+                        if (keys.items.len == 0)
+                            return invalid(allocator, .invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ item.string, context_name, action_name });
+                        try parsed.append(temporary, .{
+                            .binding = .{ .context = context, .action = action, .keys = try keys.toOwnedSlice(storage) },
+                            .expression = item.string,
+                        });
                     }
                 }
             }
@@ -133,22 +146,6 @@ pub fn Bindings(comptime Context: type, comptime Action: type) type {
 
         fn invalid(allocator: std.mem.Allocator, kind: Diagnostic.Kind, comptime format: []const u8, args: anytype) std.mem.Allocator.Error!LoadResult {
             return .{ .invalid = try Diagnostic.init(allocator, kind, format, args) };
-        }
-
-        fn appendBinding(allocator: std.mem.Allocator, storage: std.mem.Allocator, temporary: std.mem.Allocator, parsed: *std.ArrayList(ParsedBinding), context: Context, action: Action, expression: []const u8) std.mem.Allocator.Error!?Diagnostic {
-            var steps = std.mem.tokenizeScalar(u8, expression, ' ');
-            var keys: std.ArrayList(KeyPress) = .empty;
-            while (steps.next()) |step| {
-                const key = KeyPress.parse(step) catch return try Diagnostic.init(allocator, .invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(context), @tagName(action) });
-                try keys.append(storage, key);
-            }
-            if (keys.items.len == 0)
-                return try Diagnostic.init(allocator, .invalid_key, "Invalid key '{s}' for '{s}.{s}'", .{ expression, @tagName(context), @tagName(action) });
-            try parsed.append(temporary, .{
-                .binding = .{ .context = context, .action = action, .keys = try keys.toOwnedSlice(storage) },
-                .expression = expression,
-            });
-            return null;
         }
 
         /// Matches a KeyPress or a matcher whose matches(KeyPress) method returns bool.

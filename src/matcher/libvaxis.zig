@@ -36,6 +36,12 @@ fn Matcher(comptime NativeKey: type) type {
                 .hyper = spec.modifiers.hyper,
             };
             const ascii_letter = (codepoint >= 'a' and codepoint <= 'z') or (codepoint >= 'A' and codepoint <= 'Z');
+            if (ascii_letter) {
+                // Optional text must not let Shift change which ASCII binding wins.
+                const actual_shift = native.mods.shift or (native.codepoint >= 'A' and native.codepoint <= 'Z');
+                const required_shift = spec.modifiers.shift or (codepoint >= 'A' and codepoint <= 'Z');
+                if (actual_shift != required_shift) return false;
+            }
             // Native text consumes Shift; explicit bindings and unchanged non-letter keys must retain it.
             if (!ascii_letter and spec.modifiers.shift != native.mods.shift) {
                 if (spec.modifiers.shift or native.codepoint == codepoint) return false;

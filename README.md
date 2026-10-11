@@ -143,6 +143,9 @@ Other backends can pass a type with `matches(KeyPress) bool`.
 Create one `Bindings` instance per input stream.
 
 Loading rejects sequence prefixes within a context and equivalent keys assigned to different actions.  
+Normalization covers ASCII Shift, named control characters, and modifier aliases.  
+Keyboard layout and native text can create additional overlaps, such as `:` and `Shift+;`.  
+These follow context priority and JSON declaration order.  
 A mismatch retries the input as a new binding. Input in another context clears inactive prefixes.  
 Sequences have no timeout; call `cancel()` when focus changes without input.
 

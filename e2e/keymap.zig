@@ -244,6 +244,22 @@ test "native single-key overlaps follow JSON declaration priority" {
     try testing.expectEqual(Action.up, bindings.receive(&.{.list}, keymap.libvaxisMatcher(Key{ .codepoint = ';', .text = ":", .mods = .{ .shift = true } })).action);
 }
 
+test "ASCII Shift bindings ignore optional native text" {
+    // Caps Lock can produce lowercase text while Shift remains pressed.
+    const Action = enum { plain, shifted };
+    const Map = keymap.Bindings(enum { list }, Action);
+    var bindings = (try Map.load(testing.allocator,
+        \\{"list": {"plain": ["Ctrl+j"], "shifted": ["Ctrl+J"]}}
+    )).bindings;
+    defer bindings.deinit();
+
+    var parser: vaxis.Parser = .{};
+    const without_text = (try parser.parse("\x1b[106:74;70u", null)).event.?;
+    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(without_text.key_press)).action);
+    const with_text = (try parser.parse("\x1b[106:74;70;106u", null)).event.?;
+    try testing.expectEqual(Action.shifted, bindings.receive(&.{.list}, keymap.libvaxisMatcher(with_text.key_press)).action);
+}
+
 test "native text requires Shift before selecting shifted bindings" {
     // Text fields must not let an unshifted event invoke a shifted action.
     const Action = enum { shifted_digit, digit, shifted_space, space };
