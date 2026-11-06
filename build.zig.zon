@@ -1,6 +1,6 @@
 .{
     .name = .zig_keymap,
-    .version = "0.5.1",
+    .version = "0.6.0",
     .fingerprint = 0xb4a8e13fc2f145b3,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
