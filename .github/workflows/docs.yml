@@ -19,8 +19,8 @@ jobs:
       name: cloudflare-workers
       url: https://zig-keymap.hashiiiii.workers.dev
     steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: jdx/mise-action@v5.2.6
         with:
           install_args: zig
       - name: Build API documentation
