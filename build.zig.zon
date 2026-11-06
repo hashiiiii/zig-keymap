@@ -2,11 +2,11 @@
     .name = .zig_keymap,
     .version = "0.5.1",
     .fingerprint = 0xb4a8e13fc2f145b3,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .vaxis = .{
-            .url = "https://github.com/rockorager/libvaxis/archive/c060d314930c5552b99a89278a6a695baf0352da.tar.gz",
-            .hash = "vaxis-0.6.0-BWNV_LC4CwBka_bJk8SOXqzCM-nyQH00jzdL0kUhGwRE",
+            .url = "https://github.com/rockorager/libvaxis/archive/c1861acc835e42d6874f2b15744f472398fbdfb7.tar.gz",
+            .hash = "vaxis-0.6.0-BWNV_GQaDQAz9DPyb2245fA-MbFe1MtOMwVQ08z9-v50",
             .lazy = true,
         },
     },

@@ -267,12 +267,13 @@ test "load locates wrong JSON value types" {
 test "load owns complete invalid key diagnostics" {
     // Diagnostics must survive released inputs and preserve long or escaped expressions.
     const Map = Bindings(enum { list }, enum { down });
-    const expression = "Unknown+j" ** 100;
+    const repeated: [100][9]u8 = @splat("Unknown+j".*);
+    const expression: [900]u8 = @bitCast(repeated);
     var long = (try Map.load(testing.allocator, "{\"list\": {\"down\": [\"" ++ expression ++ "\"]}}")).invalid;
     defer long.deinit();
     try testing.expectEqual(Diagnostic.Kind.invalid_key, long.kind);
     try testing.expect(std.mem.indexOf(u8, long.message, "list.down") != null);
-    try testing.expect(std.mem.indexOf(u8, long.message, expression) != null);
+    try testing.expect(std.mem.indexOf(u8, long.message, &expression) != null);
 
     var escaped = blk: {
         const text = try testing.allocator.dupe(u8,
