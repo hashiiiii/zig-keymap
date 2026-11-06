@@ -31,7 +31,10 @@ jobs:
       - name: Dependency-free consumer
         run: |
           empty_packages="$(mktemp -d)"
-          zig build --build-file e2e/consumer/build.zig test --system "$empty_packages" -Doptimize=${{ matrix.optimize }}
+          # Zig 0.17.0 tries to unpack cached lazy dependencies in --system mode.
+          # An empty global cache keeps this check independent of the library tests.
+          empty_cache="$(mktemp -d)"
+          ZIG_GLOBAL_CACHE_DIR="$empty_cache" zig build --build-file e2e/consumer/build.zig test --system "$empty_packages" -Doptimize=${{ matrix.optimize }}
   format-docs:
     runs-on: ubuntu-latest
     steps:

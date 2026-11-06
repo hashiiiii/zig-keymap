@@ -164,10 +164,10 @@ pub const KeyPress = struct {
             else
                 name;
             var found = false;
-            inline for (std.meta.fields(Modifiers)) |field| {
-                if (std.ascii.eqlIgnoreCase(prefix, field.name)) {
-                    if (@field(modifiers, field.name)) return error.InvalidKey;
-                    @field(modifiers, field.name) = true;
+            inline for (@typeInfo(Modifiers).@"struct".field_names) |field| {
+                if (std.ascii.eqlIgnoreCase(prefix, field)) {
+                    if (@field(modifiers, field)) return error.InvalidKey;
+                    @field(modifiers, field) = true;
                     found = true;
                 }
             }
