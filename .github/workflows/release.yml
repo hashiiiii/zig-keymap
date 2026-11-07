@@ -20,20 +20,20 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
     steps:
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@v3.3.0
         id: app-token
         with:
           client-id: ${{ secrets.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           token: ${{ steps.app-token.outputs.token }}
-      - uses: jdx/mise-action@v5
+      - uses: jdx/mise-action@v5.2.6
         with:
           install_args: pipx:bump-my-version
       - name: Validate release
         id: version
-        uses: actions/github-script@v9
+        uses: actions/github-script@v9.0.0
         with:
           script: |
             const version = process.env.VERSION;
@@ -70,7 +70,7 @@ jobs:
           git tag "v$VERSION"
           git push --atomic origin HEAD:main "v$VERSION"
       - name: Create release
-        uses: actions/github-script@v9
+        uses: actions/github-script@v9.0.0
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
