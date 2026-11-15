@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           token: ${{ steps.app-token.outputs.token }}
-      - uses: jdx/mise-action@v5.2.6
+      - uses: jdx/mise-action@v5.2.7
         with:
           install_args: pipx:bump-my-version
       - name: Validate release
