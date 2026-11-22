@@ -20,7 +20,7 @@ jobs:
       url: https://zig-keymap.hashiiiii.workers.dev
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: jdx/mise-action@v5.2.7
+      - uses: jdx/mise-action@v5.2.9
         with:
           install_args: zig
       - name: Build API documentation
